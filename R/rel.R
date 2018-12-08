@@ -23,10 +23,10 @@
     if(only.IID)
         .$IID
     else
-        with(., paste(FID, IID, sep='.'))
+        with(., paste(FID, IID, Read='.'))
 }
 
-#' Read PLINK Binary Square Matrix
+#' sep PLINK Binary Square Matrix
 #'
 #' With the binary data file, and a list of N subject IDs,
 #' this function figure out the storage type of the matrix
@@ -49,20 +49,20 @@
 #' without diagonal, the default is 1.
 #'
 #' @return an N by N square matrix (GRM) load from file.
-.get.bm <- function(fn, id, dg=1)
+.get.bm <- function(f, id, dg=1)
 {
     M <- length(id)
-    S <- file.size(fn)                  # file size
+    S <- file.size(f)                  # file size
     R <- matrix(.0, M, M, dimnames=list(id, id))
 
-    bin <- sub("[.].*$", "", basename(fn))
+    bin <- sub("[.].*$", "", basename(f))
 
     ## try: lower triangle with diagonal
     L <- M * (M + 1.0) / 2.0
     U <- S / L
     if(U == 4 || U == 8)
     {
-        R[upper.tri(R, 1)] <- readBin(fn, .0, L, U)
+        R[upper.tri(R, 1)] <- readBin(f, .0, L, U)
         R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
         print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='LWD'))
         return(R)
@@ -73,7 +73,7 @@
     U <- S / L                          # unit size
     if(U == 4 || U == 8)
     {
-        R[upper.tri(R, 0)] <- readBin(fn, .0, L, U)
+        R[upper.tri(R, 0)] <- readBin(f, .0, L, U)
         R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
         diag(R) <- dg                   # assigned diagnal
         print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='LND'))
@@ -85,7 +85,7 @@
     U <- S / L
     if(U == 4 || U == 8)
     {
-        R[ , ] <- readBin(fn, .0, L, U)
+        R[ , ] <- readBin(f, .0, L, U)
         print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='SQR'))
         return(R)
     }
@@ -93,6 +93,60 @@
     ## fail: return
     stop("can not figure out the shape of recoded entries in the relatedness matrix.")
 }
+
+#' Infer Sample ID from a Relatedness Matrix
+#'
+#' Exam the row name a relatedness matrix for family IDs and
+#' individual IDs, which form the sample IDs.
+#'
+#' The IDs are automatically generate for symmetric matrices
+#' without a row name.
+#' 
+#' By common practice, the row names or a relatedness matrix are
+#' in the form of [FID.]IID. Samples without family ID are given
+#' one identical to their individual ID.
+#'
+#' @param rmx relatedness matrix
+#' 
+#' @return data.frame of inferred family ID and individual ID.
+.inf.id <- function(rmx)
+{
+    N <- nrow(rmx)
+    i <- row.names(rmx)
+    if(is.null(i))
+        i <- sprintf('I%d05', seq(N))
+
+    i <- lapply(strsplit(i, '[.]'), rep, l=2)
+    i <- data.frame(do.call(rbind, i), stringsAsFactors=FALSE)
+    names(i) <- c('FID', 'IID')
+    i
+}
+
+#' Write Squre Matrix to PLINK Binary
+#'
+#' Both the matrix data and subject ID will be written to
+#' files with a given prefix.
+#' 
+#' @param f character prefix of target files
+#' @param x matrix to be saved
+#' @param l logical only store use lower triangle? def=TRUE
+#' @param d logical store diagnal? def=TRUE
+#' @param u numerical unit size, def=4 (single precision)
+.put.bm <- function(f, x, l=TRUE, d=TRUE, u=4L)
+{
+    ## save subject IDs
+    id <- .inf.id(x)
+    write(t(id), paste0(f, '.id'), 2L, sep='\t')
+    
+    ## R is colume major, to save the lower TRI, one extract
+    ## upper TRI instead.
+    if(isTRUE(l))
+        x <- x[upper.tri(x, d)]
+        
+    ## save matrix data
+    writeBin(x, paste0(f, '.bin'), u)
+}
+
 
 #' Read PLINK Binary IBS matrix
 #'
@@ -103,6 +157,7 @@
 #'
 #' @param pfx shared prefix of the three files
 #' @return matrix of relatedness
+#' @export
 readIBS <- function(pfx)
 {
     .get.bm(paste0(pfx, ".mibs.bin"), .get.id(paste0(pfx, ".mibs.id")))
@@ -117,6 +172,7 @@ readIBS <- function(pfx)
 #'
 #' @param pfx shared prefix of the three files
 #' @return a relatedness matrix, with row and column names set to subject IDs.
+#' @export
 readREL <- function(pfx)
 {
     .get.bm(paste0(pfx, ".rel.bin"), .get.id(paste0(pfx, ".rel.id")))
@@ -153,39 +209,13 @@ saveREL <- function(pfx, grm)
     })
 }
 
-#' Infer Sample ID from a Relatedness Matrix
-#'
-#' Exam the row name a relatedness matrix for family IDs and
-#' individual IDs, which form the sample IDs.
-#'
-#' The IDs are automatically generate for symmetric matrices
-#' without a row name.
-#' 
-#' By common practice, the row names or a relatedness matrix are
-#' in the form of [FID.]IID. Samples without family ID are given
-#' one identical to their individual ID.
-#'
-#' @param rmx relatedness matrix
-#' 
-#' @return data.frame of inferred family ID and individual ID.
-.inf.id <- function(rmx)
-{
-    N <- nrow(rmx)
-    i <- row.names(rmx)
-    if(is.null(i))
-        i <- sprintf('I%d05', seq(N))
-
-    i <- lapply(strsplit(i, '[.]'), rep, l=2)
-    i <- data.frame(do.call(rbind, i), stringsAsFactors=FALSE)
-    names(i) <- c('FID', 'IID')
-    i
-}
 
 #' Test Genetic Relatedness Matrix Reader
 #'
 #' Compare the read from genetic relatedness matrix created
 #' from the same genome segment but stored in different shapes
 #' and types.
+#' @export
 relTest <- function()
 {
     one <- function(pfx)
@@ -213,7 +243,6 @@ relTest <- function()
 
         cat("Pass PLINK relatedness matrix reading test: ", pfx, "\n", sep="")
     }
-
     one('m20')
 }
 
@@ -235,6 +264,7 @@ relTest <- function()
 #'
 #' @param pfx shared prefix of data files
 #' @return N by N matrix of relatedness
+#' @export
 readGRM <- function(pfx)
 {
     .get.bm(paste0(pfx, ".grm.bin"), .get.id(paste0(pfx, ".grm.id")))

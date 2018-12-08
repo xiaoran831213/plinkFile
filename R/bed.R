@@ -1,24 +1,3 @@
-#' Line Count
-#'
-#' Count the occurance of '\\n', much faster than \code{readLine} and
-#' \code{read.table}. Although slower than the unix command "wc -l",
-#' it upholds platform independency.
-#'
-#' @param f the file name, or a connection.
-lc <- function(f)
-{
-    f <- file(f, open="rb")                        
-    n <- 0L
-    p <- as.raw(10L)                    # '\n'
-    while (length(chunk <- readBin(f, "raw", 65536)) > 0)
-    {
-        n <- n + sum(chunk == p)
-    }
-    if(isOpen(f))
-       close(f)
-    n
-}
-
 #' Read Genotype in PLINK BED Triplets
 #'
 #' The function take in the shared prefix of the BED triplets, return the
@@ -58,7 +37,7 @@ readBED <- function(pfx, type="integer")
     {
         if(isOpen(fp, "rb"))
         {
-            print(paste("Close", bedFile, fp))
+            ## print(paste("Close", bedFile, fp))
             close(fp)
         }
         stop("wrong magic numbers, BED triplets may be outdated.")
@@ -68,7 +47,7 @@ readBED <- function(pfx, type="integer")
     bd <- readBin(fp, "raw", L)
     if(isOpen(fp, "rb"))
     {
-        print(paste("Close", bedFile, fp))
+        ## print(paste("Close", bedFile, fp))
         close(fp)
     }
 
@@ -89,15 +68,16 @@ readBED <- function(pfx, type="integer")
     rt[gd==as.raw(3L)] <- as.raw(0L)    # 11->0: homozygous A2
 
     ## storage type
-    fc <- switch(
-        type,
-        integer=as.integer, numeric=as.numeric,
-        double=as.double,
-        character=as.character,
-        raw=as.raw,
-        as.integer)
-    rt <- fc(rt)
+    rt <- do.call(paste0("as.", type), list(rt))
 
+    ## handle NA coded as 3
+    if(!is.raw(rt))
+    {
+        na <- switch(class(rt), integer=3L, numeric=3., double=3., character='03', NULL)
+        rt[rt == na] <- NA
+    }
+
+    ## form matrix, and truncate
     dim(rt) <- c(length(rt) %/% P, P)
     rt <- rt[seq.int(N), ]
     rt
@@ -119,7 +99,7 @@ bedTest <- function()
         ctrl <- scan(txt, 1L, quiet=TRUE)
         bed <- system.file("extdata", paste0(pfx, '.bed'), package="plinkBED")
         read <- readBED(sub("[.]bed", "", bed))
-        if(!all(t(read) == ctrl))
+        if(any(t(read) != ctrl, na.rm=TRUE) || any(is.na(t(read)) != is.na(ctrl)))
             stop("Failed BED reading test:", pfx)
         cat("Passed BED reading test: ", pfx, "\n", sep="")
         invisible(TRUE)
