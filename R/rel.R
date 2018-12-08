@@ -1,97 +1,102 @@
-#' Read a list of ID
+#' Read Binary Square Matrix
 #'
-#' The typical file subject ID has no header, and two columns, family
-#' ID (FID) and within family individual ID (IID).
-#'
-#' For data exclusively composed of unrelated individuals, FID equals
-#' IID in most cases. 
-#'
-#' Because of the usual practice of assigning uniqe IID across the entire
-#' cohort even if the individuals form families, the default behavior is
-#' fething only the IID. If both FID and IID are read, the final ID will
-#' have the form "FID.IID".
+#' Fetch square matrix and sample ID from a binary data and a
+#' two column text, respectively.
 #' 
-#' @param fn file name of hte ID list
-#' @param only.IID Individuals ID only, ignore Family ID?
+#' For the binary matrix file, the function tries to figure
+#' out the storage type, since PLINK can stores a square
+#' matrix as:
 #'
-#' @return an vector of sample ID
-.get.id <- function(fn, only.IID=TRUE)
-{
-    . <- matrix(scan(fn, "", quiet=TRUE), ncol=2, byrow=TRUE)
-    . <- as.data.frame(., stringsAsFactors=FALSE)
-    names(.) <- c('FID', 'IID')
-    if(only.IID)
-        .$IID
-    else
-        with(., paste(FID, IID, Read='.'))
-}
-
-#' sep PLINK Binary Square Matrix
-#'
-#' With the binary data file, and a list of N subject IDs,
-#' this function figure out the storage type of the matrix
-#' and retrieve it as a standard R matrix.
-#'
-#' PLINK users can save the genetic relatedness matrices in
-#' various forms:
-#'
-#' * an N by N square matrix as it is
+#' * N by N entries as it is
 #' * the lower triangle with the diagonal
 #' * the lower triangle without the diagonal
 #'
-#' Aside from the differences in shape, they can choose
-#' between single or double precision numbers, occupying 4
-#' or 8 bytes per entry, respectively.
+#' Shape aside, PLINK chooses between single or double
+#' precision numbers, occupying 4 or 8 bytes per matrix entry,
+#' respectively.
+#'
+#'
+#' As for sample ID, the text file has no header, and the two
+#' columns stand for family ID (FID) and the individual ID
+#' (IID) within family.
+#'
+#' For data exclusively composed of unrelated individuals, FID
+#' is set to be equal with IID in most cases. 
+#'
+#' Given the usual practice of assigning uniqe IID across the
+#' entire cohort despite some individuals forming families, the
+#' default behavior is fething IID only. If both FID also be
+#' requested, the final ID uses the form "{FID}.{IID}".
 #' 
-#' @param fn filename of the binary square matrix
-#' @param id vector of N subject ID
-#' @param dg diagonal value for lower triangle matrices
-#' without diagonal, the default is 1.
+#' @param f.bin character filename of binary data
+#' @param f.id  character filename of sample IDs
+#' @param dg diagonal value for lower triangle without diagonal
+#' (def=1.0)
+#' @param iid.only TRUE to fetch individual ID only, ignore
+#' family ID (Def=TRUE)
 #'
 #' @return an N by N square matrix (GRM) load from file.
-.get.bm <- function(f, id, dg=1)
+.get.bm <- function(f.bin, f.id, dg=1, iid.only=TRUE)
 {
-    M <- length(id)
-    S <- file.size(f)                  # file size
-    R <- matrix(.0, M, M, dimnames=list(id, id))
+    ## -------------------- get sample IDs --------------------
+    id <- matrix(scan(f.id, "", quiet=TRUE), 2)
+    if(isTRUE(iid.only))
+        id <- id[2, ]
+    else
+        id <- paste(id[1, ], id[2, ], sep='.')
+    N <- length(id)
 
-    bin <- sub("[.].*$", "", basename(f))
+    
+    ## ------------------- get data matrix --------------------
+    S <- file.size(f.bin)               # file size
+    R <- matrix(.0, N, N, dimnames=list(id, id))
+    bin <- sub("[.].*$", "", basename(f.bin))
+    success <- FALSE
 
     ## try: lower triangle with diagonal
-    L <- M * (M + 1.0) / 2.0
-    U <- S / L
-    if(U == 4 || U == 8)
+    if(isFALSE(success))
     {
-        R[upper.tri(R, 1)] <- readBin(f, .0, L, U)
-        R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
-        print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='LWD'))
-        return(R)
+        L <- N * (N + 1.0) / 2.0
+        U <- S / L
+        if(U == 4 || U == 8)
+        {
+            R[upper.tri(R, 1)] <- readBin(f.bin, .0, L, U)
+            R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
+            success <- TRUE
+        }
     }
 
     ## try: lower triangle without diagonal
-    L <- M * (M - 1.0) / 2.0            # number of entries
-    U <- S / L                          # unit size
-    if(U == 4 || U == 8)
+    if(isFALSE(success))
     {
-        R[upper.tri(R, 0)] <- readBin(f, .0, L, U)
-        R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
-        diag(R) <- dg                   # assigned diagnal
-        print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='LND'))
-        return(R)
+        L <- N * (N - 1.0) / 2.0            # number of entries
+        U <- S / L                          # unit size
+        if(U == 4 || U == 8)
+        {
+            R[upper.tri(R, 0)] <- readBin(f.bin, .0, L, U)
+            R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
+            diag(R) <- dg                   # assigned diagnal
+            success <- TRUE
+        }
     }
 
     ## try: a squre
-    L <- 1.0 * M * M
-    U <- S / L
-    if(U == 4 || U == 8)
+    if(isFALSE(success))
     {
-        R[ , ] <- readBin(f, .0, L, U)
-        print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='SQR'))
-        return(R)
+        L <- 1.0 * N * N
+        U <- S / L
+        if(U == 4 || U == 8)
+        {
+            R[ , ] <- readBin(f.bin, .0, L, U)
+            success <- TRUE
+        }
     }
 
-    ## fail: return
-    stop("can not figure out the shape of recoded entries in the relatedness matrix.")
+    ## fail or return
+    print(data.frame(bin=bin, size=S, num.entries=L, unit.bytes=U, shape='LWD', N=N))
+    if(!success)
+        stop("can not figure out the shape of recoded entries in the relatedness matrix.")
+    R
 }
 
 #' Infer Sample ID from a Relatedness Matrix
@@ -175,7 +180,7 @@ readIBS <- function(pfx)
 #' @export
 readREL <- function(pfx)
 {
-    .get.bm(paste0(pfx, ".rel.bin"), .get.id(paste0(pfx, ".rel.id")))
+    .get.bm(paste0(pfx, ".rel.bin"), paste0(pfx, ".rel.id"))
 }
 
 saveREL <- function(pfx, grm)
@@ -207,6 +212,29 @@ saveREL <- function(pfx, grm)
         ## subject IDs
         write(t(id), fn.id, 2, sep='\t')
     })
+}
+
+
+#' Read GRM binary of GCTA
+#'
+#' GRM (genetic relatedness matrix) is the main formt of GCTA,
+#' developed by Jian Yang et. al. A GRM is basically a PLINK
+#' REL matrix with differnent surfix:
+#'
+#' * .grm.bin : binary relatedness matrix;
+#' * .grm.id  : list of samples.
+#'
+#' A GRM comes with an addtional binary matrix ".grm.N.bin" that
+#' counts the genomic variants contributed to each relatedness,
+#' also is always use single precision numbers, and stores lower
+#' triangle with diagnonal. These specifics however.
+#'
+#' @param pfx shared prefix of data files
+#' @return N by N matrix of relatedness
+#' @export
+readGRM <- function(pfx)
+{
+    .get.bm(paste0(pfx, ".grm.bin"), paste0(pfx, ".grm.id"))
 }
 
 
@@ -244,28 +272,4 @@ relTest <- function()
         cat("Pass PLINK relatedness matrix reading test: ", pfx, "\n", sep="")
     }
     one('m20')
-}
-
-#' Read GRM binary of GCTA
-#'
-#' GRM (genetic relatedness matrix) is the main formt for GCTA
-#' developed by Jian Yang et. al. A GRM has the surfix:
-#'
-#' * .grm.bin : an N by N matrix of relatedness;
-#' * .grm.id  : a list of sample ID.
-#'
-#' which is essentially the same with PLINK REL.
-#'
-#' A GRM comes with an addtional binary matrix ".grm.N.bin" that counts
-#' the genomic variants contributed to each relatedness, and it always
-#' adapts single precision and lower triangle with diagnonal. These
-#' specifics however, does not affect the behavior of the reader.
-#' 
-#'
-#' @param pfx shared prefix of data files
-#' @return N by N matrix of relatedness
-#' @export
-readGRM <- function(pfx)
-{
-    .get.bm(paste0(pfx, ".grm.bin"), .get.id(paste0(pfx, ".grm.id")))
 }
