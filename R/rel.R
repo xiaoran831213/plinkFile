@@ -45,7 +45,7 @@
     else
         id <- paste(id[1, ], id[2, ], sep='.')
     N <- length(id)
-
+    
     
     ## ------------------- get data matrix --------------------
     S <- file.size(f.bin)               # file size
@@ -165,7 +165,7 @@
 #' @export
 readIBS <- function(pfx)
 {
-    .get.bm(paste0(pfx, ".mibs.bin"), .get.id(paste0(pfx, ".mibs.id")))
+    .get.bm(paste0(pfx, ".mibs.bin"), paste0(pfx, ".mibs.id"))
 }
 
 #' Read PLINK Binary REL matrix
