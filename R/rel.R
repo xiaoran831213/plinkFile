@@ -54,7 +54,7 @@
     success <- FALSE
 
     ## try: lower triangle with diagonal
-    if(isFALSE(success))
+    if(!success)
     {
         L <- N * (N + 1.0) / 2.0
         U <- S / L
@@ -67,7 +67,7 @@
     }
 
     ## try: lower triangle without diagonal
-    if(isFALSE(success))
+    if(!success)
     {
         L <- N * (N - 1.0) / 2.0            # number of entries
         U <- S / L                          # unit size
@@ -81,7 +81,7 @@
     }
 
     ## try: a squre
-    if(isFALSE(success))
+    if(!success)
     {
         L <- 1.0 * N * N
         U <- S / L
