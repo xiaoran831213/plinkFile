@@ -8,8 +8,7 @@
 #' bases, then decode the bytes into alternative allele dosage counts or NA.
 #'
 #' @param bd byte data in R "raw" mode
-#' "integer", "numeric", "double", and "character".
-#' @return a vector of dosage data in desired type, untruncated.
+#' @return a vector of dosage data in integer, untruncated.
 db1 <- function(bd)
 {
     ## fill the genomic data vector
