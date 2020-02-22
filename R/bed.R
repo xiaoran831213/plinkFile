@@ -1,107 +1,48 @@
 #' Decompress Byte Data
 #'
-#' For each SNP (i.e., a logical row in the BED file), a byte in the BED
-#' file can encodes the genotype of up to 4 consecutive samples (2 bits
-#' each).
+#' For each SNP  (i.e., a row in the  BED), a byte encodes the up  to 4 genotype
+#' samples (2 bits each).
 #'
-#' The function decondens the bytes read from a BED into one byte per sample
-#' bases, then decode the bytes into alternative allele dosage counts or NA.
+#' The function decodes bytes read from a BED to allele dosage or NA.
 #'
 #' @param bd byte data in R "raw" mode
 #' @return a vector of dosage data in integer, untruncated.
-db1 <- function(bd)
+db1 <- function(bd, N, P, quiet=TRUE)
 {
-    ## fill the genomic data vector
-    .m <- as.raw(0x03)                       # 0x03 = 11000000
-
-    cat("converting ...\n")
-    cat("sample 1, 5,  9, ...\n")
-    g1 <- as.integer(bd & .m)                # sample 1, 5, ...
-    cat("sample 2, 6, 10, ...\n")
-    g2 <- as.integer(rawShift(bd, -2L) & .m) # sample 2, 6, ...
-    cat("sample 3, 7, 11, ...\n")
-    g3 <- as.integer(rawShift(bd, -4L) & .m) # sample 3, 7, ...
-    cat("sample 4, 8, 12, ...\n")
-    g4 <- as.integer(rawShift(bd, -6L) & .m) # sample 4, 8, ...
-    
-    ## decode to dosage
-    cat("decoding ...\n")
+    M <- as.integer(ceiling(N / 4) * 4L)
+    r <- matrix(0L, M, P) # data
     ## 00->2: homozygous A1
     ## 01->3: missing
     ## 10->1: heterozygous
     ## 11->0: homozygous A2
-    dc <- c(2L, NA, 1L, 0L)
-    cat("sample 1, 5,  9, ...\n")
-    g1 <- dc[g1 + 1L]
-    cat("sample 2, 6, 10, ...\n")
-    g2 <- dc[g2 + 1L]
-    cat("sample 3, 7, 11, ...\n")
-    g3 <- dc[g3 + 1L]
-    cat("sample 4, 8, 12, ...\n")
-    g4 <- dc[g4 + 1L]
+    C <- c(2L, NA, 1L, 0L)
 
-    cat("matrix packing ...\n")
-    rt <- as.vector(rbind(g1, g2, g3, g4), "integer")
-    rt
+    ## fill the genomic data vector
+    m <- as.raw(0x03) # bit mask: 0x03 = 11000000
+    if(!quiet)
+        cat("converting ...\n")
+
+    if(!quiet)
+        cat("sample 1, 5,  9, ...\n")
+    r[seq.int(1L, M, 4L), ] <- C[as.integer(bd                & m) + 1L]
+
+    if(!quiet)
+        cat("sample 2, 6, 10, ...\n")
+    r[seq.int(2L, M, 4L), ] <- C[as.integer(rawShift(bd, -2L) & m) + 1L]
+
+    if(!quiet)
+        cat("sample 3, 7, 11, ...\n")
+    r[seq.int(3L, M, 4L), ] <- C[as.integer(rawShift(bd, -4L) & m) + 1L]
+
+    if(!quiet)
+        cat("sample 4, 8, 12, ...\n")
+    r[seq.int(4L, M, 4L), ] <- C[as.integer(rawShift(bd, -6L) & m) + 1L]
+    
+    r <- r[seq.int(1L, N), ]
+    r
 }
 
-#' Read the BED file of a set of PLINK Triplets
-#'
-#' Read genotype matrix from a PLINK BED file set. This function is meant
-#' for in-memory examination of small PLINK BEDs. For out-of-memory computation
-#' tasks involving giagantic BEDs, see \code{\link{scanBED}} instead.
-#' 
-#' PLINK BED (\emph{binary biallelic genotype table}) is comprised of three files
-#' (usually) sharing identical prefix:
-#' \itemize{
-#'   \item {pfx}.fam: table of N typed individuals
-#'   \item {pfx}.bim: table of P typed genomic variants (i.e., SNPs);
-#'   \item {pfx}.bed: genotype matrix of N rows and P columns stored in condensed
-#'   binary format.
-#' }
-#'
-#' The three files are commonly referred by their common prefix, e.g.:
-#'
-#' chrX.bed, chrX.fam, and chrX.bim, are jointly specified by "chrX".
-#'  
-#' @param pfx  character prefix of a PLINK BED file set.
-#' @param row  rows and names, NULL by default; set 1 to use IID (2nd column in a FAM)
-#' as row names, or 2 to use FID.IID (the 1st and 2nd column in a FAM) as row names;
-#' alternatively, one could supply a vector as row names, but must make sure its size
-#' being identical to the actual number of individuals recorded by the PLINK files.
-#' 
-#' @param col  columns and names, NULL by default; set to 1 to use SNP rs ID (2nd column
-#' in a BIM) as column names, or set to 2 to use automatically generated "CHR.POS" as
-#' column names; alternatively, one could supply a vector as column names, but must be
-#' sure its size equals the actual number of variants in the PLINK files.
-#'
-#' @return matrix of N rows of samples rows, and P columns of biallelic
-#' genomic features (i.e., SNPs).
-#'
-#' @seealso{
-#' scanBED}
-#' 
-#' @examples{
-#'
-#' ## read PLINK BED 1, 10 individuals, 20  SNPs
-#' f1 <- system.file("extdata", paste0('m20', '.bed'), package="plinkBED")
-#' print(f1)
-#'
-#' ## get prefix and read
-#' g1 <- readBED(sub("[.]bed$", "", f1))
-#' print(g1)
-#'
-#'
-#' ## read PLINK BED 2, 10 individuals, 14K SNPs
-#' (f2 <- system.file("extdata", paste0('i10', '.bed'), package="plinkBED"))
-#'
-#' ## get prefix and read
-#' g2 <- readBED(sub("[.]bed$", "", f2))
-#' str(g2)
-#'
-#' }
-#' 
-#' @export
+
 readBED <- function(pfx, row=NULL, col=NULL)
 {
     pfx <- sub("[.]bed", "", pfx)
@@ -179,17 +120,13 @@ readBED <- function(pfx, row=NULL, col=NULL)
     }
 
     ## decompress the byte data
-    rt <- db1(bd)
-
-    ## form matrix, and truncate
-    dim(rt) <- c(length(rt) %/% P, P)
-    rt <- rt[seq.int(N), ]
+    rt <- db1(bd, N, P)
 
     ## assign row and column names
-    if(!is.null(row))
-        rownames(rt) <- row
-    if(!is.null(col))
-        colnames(rt) <- col
+    ## if(!is.null(row))
+    ##     rownames(rt) <- row
+    ## if(!is.null(col))
+    ##     colnames(rt) <- col
     rt
 }
 
@@ -288,7 +225,7 @@ readPLK <- function(pfx)
 #'
 #' @seealso {readBED}
 #' @export
-scanBED <- function(pfx, FUN=summary, ...)
+scanBED <- function(pfx, FUN, ...)
 {
     ## the triplets
     bedFile <- paste0(pfx, '.bed')
@@ -314,14 +251,15 @@ scanBED <- function(pfx, FUN=summary, ...)
     }
 
     ## scan the data
-    dl <- file.size(bedFile) - 3L       # bytes remaining
-    bpv <- dl %/% P                     # bytes per variant
-    csz <- 2L^20L %/% bpv               # chunk size (1MB)
-    vdx <- 0L                           # variant index
+    dl <- file.size(bedFile) - 3L         # bytes remaining
+    bpv <- dl %/% P                       # bytes per variant
+    vpc <- min(P, max(2L^20L %/% bpv, 1)) # variant per chunk (chunk size = 1MB)
+    vdx <- 0L                             # variant index
     ret <- list()
-    while (length(.g <- readBin(fp, "raw", csz)) > 0)
+    while (length(.g <- readBin(fp, "raw", vpc)) > 0)
     {
-        .g <- db1(.g)                   # genotype chunk
+        .p <- length(.g) / N
+        .g <- db1(.g, N, P) # genotype chunk
         dim(.g) <- c(length(.g) %/% P, P)
         .g <- .g[seq.int(N), ]
         for(j in seq.int(NCOL(.g)))
@@ -337,31 +275,45 @@ scanBED <- function(pfx, FUN=summary, ...)
         ## print(paste("Close", bedFile, fp))
         close(fp)
     }
-    simplify2array(ret)
+
+    r <- simplify2array(ret)
+    if(is.matrix(r))
+        r <- t(r)
+    r
 }
 
 #' Test BED Reader
 #'
-#' Let the bedRead take "i10.{bed,bim,fam}" and "m20.{bed,bim,fam}"
-#' under "extdata", and compare the integer output with texture files
-#' ("i10.txt" and "m20.txt") that were manully converted from the
-#' triplets using PLINK 1.9.
-#' 
-#' @export
-bedTest <- function()
+#' Read m20 (bed, bim, and fam) under  "extdata" and compare with the content in
+#' text file "i10.txt" converted from m20 by PLINK.
+test.readBed <- function()
 {
-    fun <- function(pfx)
-    {
-        txt <- system.file("extdata", paste0(pfx, '.txt'), package="plinkBED")
-        ctrl <- scan(txt, 1L, quiet=TRUE)
-        bed <- system.file("extdata", paste0(pfx, '.bed'), package="plinkBED")
-        read <- readBED(sub("[.]bed", "", bed))
-        if(any(t(read) != ctrl, na.rm=TRUE) || any(is.na(t(read)) != is.na(ctrl)))
-            stop("Failed BED reading test:", pfx)
-        cat("Passed BED reading test: ", pfx, "\n", sep="")
-        invisible(TRUE)
-    }
+    pfx <- sub("[.]bed$", "", system.file("extdata", 'm20.bed', package="plinkBED"))
+    txt <- system.file("extdata", paste0(pfx, '.txt'), package="plinkBED")
 
-    fun('m20')
-    fun('i10')
+    bed <- readBED(pfx)
+    txt <- scan(txt, 1L, quiet=TRUE)
+
+    if(any(t(bed) != txt, na.rm=TRUE) || any(is.na(t(bed)) != is.na(txt)))
+        stop("Failed BED reading test:", pfx)
+    cat("Passed BED reading test: ", pfx, "\n", sep="")
+    invisible(TRUE)
+}
+
+
+#' Test BED Scanner
+#'
+#' Go through  i20.* (bed, bim,  and fam) under  "extdata", summerize every SNP.
+test.scanBed <- function()
+{
+    pfx <- sub("[.]bed$", "", system.file("extdata", 'i10.bed', package="plinkBED"))
+    bed <- readBED(pfx)
+    
+    ret <- scanBED(pfx, function(g)
+    {
+        af <- mean(g, na.rm=TRUE) / 2
+        maf <- min(af, 1 - af)
+        c(mu=mean(g, na.rm=TRUE), sd=sd(g, na.rm=TRUE), maf=maf, nas=sum(is.na(g)))
+    })
+    ret
 }
