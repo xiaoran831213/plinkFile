@@ -1,42 +1,53 @@
-#' read binary symmetric matrix
+#' Read Binary Symmetric Matrix (BSM)
 #'
-#' read binary symmetric  matrix from PLINK files {p}.bin and  {p}.id, where {p}
-#' is a shared prefix.
+#' Read BSM represented by a pair of files surfixed by ".bin" and ".id",
+#' usually produced by PLINK and GCTA.
 #'
-#' {p}.bin stores the matrix, which can be:
+#' The ".bin" is a binary file storing the matrix entries, which can be
 #'
-#'   * the N x N symmetric matrix itself
-#'   * the lower triangle w/t diagonal
-#'   * the lower triangle w/o diagonal
-#' 
+#' \itemize{
+#'   \item{the N x N symmetric matrix in full}
+#'   \item{the lower triangle with diagonal}
+#'   \item{the lower triangle w/o diagonal}
+#' },
 #' saved as either single or double precision.
 #'
-#' {p}.id contains  family ID (FID)  and individual ID  (IID) in two  columns of
-#' text, by default only the 2nd column (IID) is used.
+#' The ".id"  a text  file of  family ID (FID)  and individual  ID (IID)  in two
+#' columns. by default, IID is used as matix row and column names.
 #'
-#' @param pfx shared prefix for two PLINK files
-#' @param dgn diagonal values for lower triangle without diagonal (def=1.0)
-#' @param fid read FID as well (def=FALSE)
-#' @param sep separator put between fid and iid to form the final ID
+#' PLINK option  \code{--make-red bin},  \code{--distance bin}, and  GCTA option
+#' \code{--make-grm} all creats binary symmetric matrices, widely used in linear
+#' mixed model or kernel based models for genetics.
 #'
-#' @return N by N symmetric matrix loaded from file.
+#' @param pfx prefix of data files {pfx}.id and {pfx}.bin
+#' @param dgv diagonal value for matrix without a diagonal (def=1.0)
+#' @param fid separator between FID and IID (def=NULL, use IID only)
+#' @param bin use bin file instead of the default \code{{pfx}.bin}
+#' @param id use id file instead of the default \code{{pfx}.id}
+#'
+#' @return  symmetric matrix  loaded from file,  with sample ID  in the  row and
+#'     column names.
+#' 
 #' @export
-readBSM <- function(pfx, dgn=1, fid=FALSE, sep=".")
+readBSM <- function(pfx, dgv=1, fid=NULL, id=NULL, bin=NULL)
 {
     ## ID in {p}.id
-    ids <- matrix(scan(paste0(pfx, ".id"), quiet=TRUE, comment.char = "#"), 2)
-    if(isTRUE(fid))
-        ids <- paste(ids[1, ], ids[2, ], sep=sep)
-    else
+    if(is.null(id))
+        id <- paste0(pfx, ".id")
+    ids <- matrix(scan(id, quiet=TRUE, comment.char = "#"), 2)
+    if(is.null(fid))
         ids <- ids[1, ]
+    else
+        ids <- paste(ids[1, ], ids[2, ], sep=fid)
     N <- length(ids)
-    
+
     ## data matrix
-    bin <- paste0(pfx, ".bin")
+    if(is.null(bin))
+        bin <- paste0(pfx, ".bin")
     S <- file.size(bin) # file size
     R <- matrix(.0, N, N, dimnames=list(ids, ids))
     H <- "UNK" # shape, start with unknown
-
+    
     ## try: lower triangle w/t diagonal
     if(H == "UNK")
     {
@@ -44,7 +55,7 @@ readBSM <- function(pfx, dgn=1, fid=FALSE, sep=".")
         U <- S / L
         if(U == 4 || U == 8)
         {
-            R[upper.tri(R, 1)] <- readBin(bin, .0, L, U)
+            R[upper.tri(R, 1)] <- readBin(bin, 0., L, U)
             R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
             H="LWD"
         }
@@ -57,9 +68,9 @@ readBSM <- function(pfx, dgn=1, fid=FALSE, sep=".")
         U <- S / L               # unit size
         if(U == 4 || U == 8)
         {
-            R[upper.tri(R, 0)] <- readBin(bin, .0, L, U)
+            R[upper.tri(R, 0)] <- readBin(bin, 0., L, U)
             R[lower.tri(R, 0)] <- t(R)[lower.tri(R, 0)]
-            diag(R) <- dgn # diagnal
+            diag(R) <- dgv # diagnal
             H="LND"
         }
     }
@@ -71,7 +82,7 @@ readBSM <- function(pfx, dgn=1, fid=FALSE, sep=".")
         U <- S / L
         if(U == 4 || U == 8)
         {
-            R[ , ] <- readBin(bin, .0, L, U)
+            R[ , ] <- readBin(bin, 0., L, U)
             H="SQR"
         }
     }
@@ -85,24 +96,24 @@ readBSM <- function(pfx, dgn=1, fid=FALSE, sep=".")
 
 #' Infer Sample ID from a symmetric matrix
 #'
-#' Exam the row name family and individual id.
+#' Exam the row name for family and individual id.
 #'
 #' For matrices without rowname, id are automatically generated.
 #' 
-#' By common practice, the row names or a relatedness matrix are
-#' in the form of [FID.]IID. Samples without family ID are given
-#' one identical to their individual ID.
+#' By common practice, the  row names or a matrix are in  the form of [FID.]IID.
+#' Samples without family ID are given one identical to their individual ID.
 #'
 #' @param x  matrix
-#' 
+#' @param sep separator between FID and IID forming the sample ID
 #' @return data.frame of inferred family ID and individual ID.
-.inf.id <- function(x, sep=".")
+gid <- function(x, sep=".")
 {
     N <- nrow(x)
     i <- row.names(x)
     if(is.null(i))
-        i <- sprintf('I%d05', seq(N))
-
+    {
+        i <- sprintf(paste0('I%d0', nchar(N)), seq(N))
+    }
     sep <- paste0('[', sep, ']')
     i <- lapply(strsplit(i, sep), rep, l=2)
     i <- data.frame(do.call(rbind, i), stringsAsFactors=FALSE)
@@ -112,77 +123,173 @@ readBSM <- function(pfx, dgn=1, fid=FALSE, sep=".")
 
 #' Save Symmetric Matrix to Binary
 #'
-#' save the matrix to binary {p}.bin, and  the row names text file {p}.id, where
-#' {p} is a given file prefix.
+#' Save symmetric matrix  to a binary core  file (.bin), and a text  file of IDs
+#' (.id), recognizable by PLINK.
 #' 
 #' @param pfx prefix of output files
-#' @param x matrix to be saved
-#' @param l store the lower triangle? def=TRUE
-#' @param d store the diagnal? def=TRUE
-#' @param u numerical unit, def=4 (single precision)
+#' @param x symmetric matrix to save
+#' @param ltr store the lower triangle only? (def=TRUE)
+#' @param diag store the diagnal? def=TRUE
+#' @param unit numerical unit, (def=4, single precision)
+#' @param fid separator between FID and IID (def=".").
 #' @export
-saveBSM <- function(pfx, x, l=TRUE, d=TRUE, u=4L)
+saveBSM <- function(pfx, x, ltr=TRUE, diag=TRUE, unit=4L, fid=".")
 {
     ## save subject IDs
-    id <- .inf.id(x)
+    id <- gid(x, sep=fid)
     write(t(id), paste0(pfx, '.id'), 2L, sep='\t')
     
     ## R is colume majored, to save the lower TRI, use upper TRI instead.
-    if(isTRUE(l))
-        x <- x[upper.tri(x, d)]
+    if(isTRUE(ltr))
+        x <- x[upper.tri(x, diag)]
         
     ## save matrix data
-    writeBin(x, paste0(pfx, '.bin'), u)
+    writeBin(x, paste0(pfx, '.bin'), unit)
 }
 
 
 #' Read PLINK Binary IBS matrix
 #'
 #' A PLINK IBS (Identity by State) matrix is represented by
+#' \itemize{
+#'   \item {.mibs.bin:}{IBS matrix in binary}
+#'   \item {.mibs.id :}{FID and IID in text}
+#' }
+#' A binary IBS matrix is the result of PLINK \code{--distance ibs bin}
 #'
-#'   * {p}.mibs.bin   : IBS matrix in binary
-#'   * {p}.mibs.id    : samples FID and IID in text
-#'
-#' IBS matrix is a result of PLINK --distance ibs
-#'
-#' @param pfx shared prefix of the three files
-#' @return matrix of relatedness
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' (readIBS(pfx))
+#' 
+#' @param pfx prefix of the IBS file set.
+#' @param fid seperate after family ID (def=NULL, use IID only)
+#' @return IBS matrix with row and column names set to sample ID.
 #' @export
-readIBS <- function(pfx) readBSM(paste0(pfx, ".mibs"))
+readIBS <- function(pfx, fid=".") readBSM(paste0(pfx, ".mibs"), fid=fid)
+
 
 #' Read PLINK Binary REL matrix
 #'
 #' A PLINK REL (Relatedness) matrix is represented by
+#' \itemize{
+#'   \item {.rel.bin:}{REL matrix in binary}
+#'   \item {.rel.id :}{FID and IID in text}
+#' }
+#' A binary REL matrix is the result of PLINK \code{--make-rel bin}
 #'
-#'   * {p}.rel.bin   : IBS matrix in binary
-#'   * {p}.rel.id    : samples FID and IID in text
-#'
-#' REL matrix is a result of PLINK --distance ibs
-#'
-#' @param pfx shared prefix of the three files
-#' @return a relatedness matrix, with row and column names set to subject IDs.
-#' @export
-readREL <- function(pfx) readBSM(paste0(pfx, ".rel"))
-
-#' Read GRM binary of GCTA
-#'
-#' GRM (genetic relatedness matrix) is the main formt of GCTA, basically a PLINK
-#' REL with differnent surfix:
-#'
-#'   * .grm.bin : binary matrix,
-#'   * .grm.id  : samples,
-#'
-#' and it always uses single precision.
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' (readREL(pfx))
 #' 
-#' GRM  also comes  with another  binary matrix  ".grm.N.bin" counting  variants
-#' contributed to each relatedness.
-#'
-#' @param pfx shared prefix of data files
-#' @return N by N matrix of relatedness
+#' @param pfx prefix of the REL file set
+#' @param fid separate after family ID. (def=NULL, use IID only)
+#' @return relatedness matrix with row and column names set to sample ID.
 #' @export
-readGRM <- function(pfx) readBSM(paste0(pfx, ".grm"))
+readREL <- function(pfx, fid=".") readBSM(paste0(pfx, ".rel"), fid=fid)
 
-saveGRM <- function(pfx, grm)
+#' Read Genetic Related Matrix (GRM) of GCTA
+#'
+#' GRM is the  core formt of GCTA,  which is an binary symmetric  matrix with an
+#' extra variant count  matrix (VCM), this function reads  the binary sysmmetric
+#' matrix.
+#'
+#' GCTA GRM is represented by a set of three files:
+#' 
+#' \itemize{
+#'   \item {.grm.bin   :}{GRM matrix in binary}
+#'   \item {.grm.id    :}{sample FID and IID in text}
+#'   \item {.grm.N.bin :}{number of valid variants for each GRM entry}}
+#' 
+#' and it always  uses single precision (4  bytes per entry).
+#'
+#' To read the extra the extra VCM (grm.N.bin), use \code{\link{readVCM}}.
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' (readGRM(pfx))
+#'
+#' @param pfx prefix of GRM file set
+#' @param fid separator after family ID (def=NULL, use IID only)
+#' @return matrix of relatedness with sample ID in row and column names.
+#' @export
+readGRM <- function(pfx, fid=".") readBSM(paste0(pfx, ".grm"), fid=fid)
+
+#' Read Variant Count Matrix (VCM) accompanying a GCTA GRM
+#'
+#' GRM (Genetic Relatedness Matrix) is the core formt of GCTA, which is a PLINK
+#' binary  symmetric matrix  with  an  extra variant  count  matrix (VCM),  this
+#' function reads the VCM.
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' (readVCM(pfx))
+#'
+#' @param pfx prefix of GRM file set
+#' @param fid seperate after family ID (def=NULL, use IID only)
+#' @return matrix of variant count with sample ID in row and column names.
+#' @export
+readVCM <- function(pfx, fid=NULL) readBSM(paste0(pfx, ".grm.N"), fid=fid, id=paste0(pfx, ".grm.id"))
+
+#' Save symmetic matrix to GCTA GRM format.
+#'
+#' GRM (Genetic  Relatedness Matrix) is  the core  formt of GCTA,  this function
+#' saves a R symmetric matrix to a file set recgnizable by GCTA.
+#'
+#' Three files will be saved:
+#' 
+#' \itemize{
+#'   \item {.grm.bin   :}{genetic relatedness matrix in binary}
+#'   \item {.grm.id    :}{FID and IID for N individuals in text}
+#'   \item {.grm.N.bin :}{variant count matrix (VCM) in binary}
+#' }
+#'
+#' FID and IID will be generated if the \code{grm} to be saved has no row names.
+#' 
+#' When save the  \code{vcm}, if a single  number is given, this  number is used
+#' as the variant count for all entries in the GRM.
+#'
+#' \code{saveGRM} is useful in exporting  customized kinship matrices (such as a
+#' Gaussian or a  Laplacian kernel) to a  GRM acceptable by GCTA,  which are not
+#' supported by GCTA's own GRM builder.
+#'
+#' @param pfx prefix of data files
+#' @param grm genome relatedness matrix to save
+#' @param vcm variant counts matrix to save (def=1).
+#' @param fid separator after family ID. (def=".")
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' gmx <- readBED(pfx)  # read genotype matrix from PLINK BED.
+#' gmx <- scale(gmx)    # standardize
+#' 
+#' # kinship matrix as Gaussian kernel, built from the first 10 variants
+#' gmx.gau <- gmx[, +(1:10)]                 # the first 10 variants
+#' not.na.gau <- tcrossprod(!is.na(gmx.gau)) # variant count matrix
+#' kin.gau <- exp(as.matrix(-dist(gmx.gau, "euc")) / not.na.gau)
+#' saveGRM("gau", kin.gau, not.na.gau)  # gau.grm.* should appear
+#'
+#' # kinship matrix as Laplacian kernel, built without the first 10 variants
+#' gmx.lap <- gmx[, -(1:10)]                 # excpet the first 10 variants
+#' not.na.lap <- tcrossprod(!is.na(gmx.lap)) # variant count matrix
+#' kin.lap <- exp(as.matrix(-dist(gmx.lap, "man")) / not.na.lap)
+#' saveGRM("lap", kin.lap, not.na.lap)  # lap.grm.* should appear
+#'
+#' # merge kinship in R language
+#' not.na.kin <- not.na.gau + not.na.lap
+#' kin.rln <- (kin.gau * not.na.gau + kin.lap * not.na.lap) / not.na.kin
+#' 
+#' # If gcta64 (https://cnsgenomics.com/software/gcta) is installed, merge using
+#' # GCTA
+#' write(c("gau", "lap"), "kin.txt")
+#' system("gcta64 --mgrm-bin kin.txt --make-grm --out kin")
+#' kin.gct <- readGRM("kin") # read kinship merged by GCTA
+#'
+#' # the merge done by R and GCTA  are slightly different due to R's affinity to
+#' # 8 bit double precesion numbers.
+#' 
+#' all.equal(kin.gct, kin.rln) # not exact but close
+#' @export
+saveGRM <- function(pfx, grm, vcm=NULL, fid=".")
 {
     ## get file names
     fn.rmx <- paste0(pfx, ".grm.bin")
@@ -190,27 +297,27 @@ saveGRM <- function(pfx, grm)
     fn.id <- paste0(pfx, ".grm.id")
 
     ## complete id and N
-    if(is.matrix(grm))
-    {
-        grm <- list(rmx=grm, id=.inf.id(grm), N=1.0)
-    }
+    id <- gid(grm, sep=fid)
 
-    with(grm,
-    {
-        ## upper.tri of col major = lower.tri of row major
-        idx <- upper.tri(diag(nrow(id)), T)
-        
-        ## genomic relatedness matrix
-        rmx <- rmx[idx]
-        writeBin(rmx, fn.rmx, 4L)
+    if(is.null(vcm))
+        vcm <- 1
+    if(length(vcm) != length(grm) && length(vcm) != 1)
+        stop("wrong dimension for variant count matrix.")
 
-        ## genomic variant count matrix
-        N <- N[idx]
-        writeBin(N, fn.N, 4L)
+    ## upper.tri of col major = lower.tri of row major
+    u <- upper.tri(diag(nrow(id)), TRUE)
+    grm <- grm[u]
+    writeBin(grm, fn.rmx, 4L)
 
-        ## subject IDs
-        write(t(id), fn.id, 2, sep='\t')
-    })
+    ## variant count matrix
+    if(length(vcm) > 1)
+        vcm <- vcm[u]
+    writeBin(vcm, fn.N, 4L)
+
+    ## individual ID table
+    write(t(id), fn.id, 2, sep='\t')
+
+    invisible(NULL)
 }
 
 #' Test Genetic Relatedness Matrix Reader
@@ -218,12 +325,11 @@ saveGRM <- function(pfx, grm)
 #' Compare the read from genetic relatedness matrix created
 #' from the same genome segment but stored in different shapes
 #' and types.
-#' @export
-relTest <- function()
+testReadBSM <- function()
 {
     one <- function(pfx)
     {
-        fdr <- file.path(system.file("extdata", package="plinkBED"), pfx)
+        fdr <- file.path(system.file("extdata", package="plinkFile"), pfx)
         
         ## standardized relatedness, lower trangle with diagonal, single
         st4 <- readREL(paste0(fdr, ".st4"))
