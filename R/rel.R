@@ -1,7 +1,7 @@
 #' Read Binary Symmetric Matrix (BSM)
 #'
-#' Read BSM represented by a pair of files surfixed by ".bin" and ".id",
-#' usually produced by PLINK and GCTA.
+#' Read BSM represented by a pair of files surfixed by ".bin" and ".id", usually
+#' produced by PLINK and GCTA.
 #'
 #' The ".bin" is a binary file storing the matrix entries, which can be
 #'
@@ -27,6 +27,10 @@
 #'
 #' @return  symmetric matrix  loaded from file,  with sample ID  in the  row and
 #'     column names.
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20.rel")
+#' (readBSM(pfx, fid=":"))
 #' 
 #' @export
 readBSM <- function(pfx, dgv=1, fid=NULL, id=NULL, bin=NULL)
@@ -132,6 +136,16 @@ gid <- function(x, sep=".")
 #' @param diag store the diagnal? def=TRUE
 #' @param unit numerical unit, (def=4, single precision)
 #' @param fid separator between FID and IID (def=".").
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20.rel")
+#' rel <- readBSM(pfx)  # relatedness kernel matrix
+#' re2 <- rel^2         # 2nd order polynomial kernel
+#'
+#' out <- file.path(system.file("extdata", package="plinkFile"), "m20.re2")
+#' saveBSM(out, re2)
+#' dir(system.file("extdata", package="plinkFile"), "m20.re2") # new files
+#' 
 #' @export
 saveBSM <- function(pfx, x, ltr=TRUE, diag=TRUE, unit=4L, fid=".")
 {
@@ -266,28 +280,25 @@ readVCM <- function(pfx, fid=NULL) readBSM(paste0(pfx, ".grm.N"), fid=fid, id=pa
 #' gmx.gau <- gmx[, +(1:10)]                 # the first 10 variants
 #' not.na.gau <- tcrossprod(!is.na(gmx.gau)) # variant count matrix
 #' kin.gau <- exp(as.matrix(-dist(gmx.gau, "euc")) / not.na.gau)
-#' saveGRM("gau", kin.gau, not.na.gau)  # gau.grm.* should appear
+#' out.gau <- file.path(system.file("extdata", package="plinkFile"), "m20.gau")
+#' saveGRM(out.gau, kin.gau, not.na.gau)  # gau.grm.* should appear
 #'
 #' # kinship matrix as Laplacian kernel, built without the first 10 variants
-#' gmx.lap <- gmx[, -(1:10)]                 # excpet the first 10 variants
+#' gmx.lap <- gmx[, -(1:10)]                 # drop the first 10 variants
 #' not.na.lap <- tcrossprod(!is.na(gmx.lap)) # variant count matrix
 #' kin.lap <- exp(as.matrix(-dist(gmx.lap, "man")) / not.na.lap)
-#' saveGRM("lap", kin.lap, not.na.lap)  # lap.grm.* should appear
+#' out.lap <- file.path(system.file("extdata", package="plinkFile"), "m20.lap")
+#' saveGRM(out.lap, kin.lap, not.na.lap)  # lap.grm.* should appear
 #'
-#' # merge kinship in R language
-#' not.na.kin <- not.na.gau + not.na.lap
-#' kin.rln <- (kin.gau * not.na.gau + kin.lap * not.na.lap) / not.na.kin
-#' 
-#' # If gcta64 (https://cnsgenomics.com/software/gcta) is installed, merge using
-#' # GCTA
-#' write(c("gau", "lap"), "kin.txt")
-#' system("gcta64 --mgrm-bin kin.txt --make-grm --out kin")
-#' kin.gct <- readGRM("kin") # read kinship merged by GCTA
+#' # merge kinship in R language for a radius based function kernel matrix
+#' not.na.rbf <- not.na.gau + not.na.lap
+#' kin.rbf <- (kin.gau * not.na.gau + kin.lap * not.na.lap) / not.na.rbf
+#' out.rbf <- file.path(system.file("extdata", package="plinkFile"), "m20.rbf")
+#' saveGRM(out.rbf, kin.rbf, not.na.rbf)  # lap.grm.* should appear
 #'
-#' # the merge done by R and GCTA  are slightly different due to R's affinity to
-#' # 8 bit double precesion numbers.
+#' # check saved matrices
+#' dir(system.file("extdata", package="plinkFile"), "(gau|lap|rbf)")
 #' 
-#' all.equal(kin.gct, kin.rln) # not exact but close
 #' @export
 saveGRM <- function(pfx, grm, vcm=NULL, fid=".")
 {

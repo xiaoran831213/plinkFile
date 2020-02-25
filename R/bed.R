@@ -86,7 +86,8 @@ dbd <- function(B, N, quiet=TRUE)
 #' bed <- system.file("extdata", 'm20.bed', package="plinkFile")
 #' pfx <- sub("[.]bed$", "", bed)
 #' bed <- readBED(pfx, quiet=FALSE)
-#' 
+#'
+#' @seealso {readBED}
 #' @export
 readBED <- function(pfx, row=NULL, col=NULL, quiet=TRUE)
 {
@@ -166,6 +167,12 @@ readBED <- function(pfx, row=NULL, col=NULL, quiet=TRUE)
 #'
 #' @param pfx prefix of a PLINK fileset.
 #' @return data frame describing individuals,  loaded from the FAM file.
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' bed <- readBED(pfx, row=1, col=1, quiet=FALSE)
+#' bed
+#' 
 #' @export
 readFAM <- function(pfx)
 {
@@ -223,8 +230,7 @@ readBIM <- function(pfx)
 #' within the body of \code{FUN}.
 #'
 #' @examples
-#' bed <- system.file("extdata", '000.bed', package="plinkFile")
-#' pfx <- sub("[.]bed$", "", bed)
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
 #' ret <- scanBED(pfx, function(g)
 #' {
 #'     af <- mean(g, na.rm=TRUE) / 2
