@@ -1,7 +1,7 @@
 #' Read Binary Symmetric Matrix (BSM)
 #'
-#' Read BSM represented by a pair of files surfixed by ".bin" and ".id", usually
-#' produced by PLINK and GCTA.
+#' Read BSM represented by a pair of files suffixed by ".bin" and ".id",
+#' usually produced by PLINK and GCTA.
 #'
 #' The ".bin" is a binary file storing the matrix entries, which can be
 #'
@@ -133,7 +133,7 @@ gid <- function(x, sep=".")
 #' @param pfx prefix of output files
 #' @param x symmetric matrix to save
 #' @param ltr store the lower triangle only? (def=TRUE)
-#' @param diag store the diagnal? def=TRUE
+#' @param diag save diagnal? (def=TRUE) ignored if \code{ltr} is FALSE.
 #' @param unit numerical unit, (def=4, single precision)
 #' @param fid separator between FID and IID (def=".").
 #'
@@ -154,7 +154,7 @@ saveBSM <- function(pfx, x, ltr=TRUE, diag=TRUE, unit=4L, fid=".")
     write(t(id), paste0(pfx, '.id'), 2L, sep='\t')
     
     ## R is colume majored, to save the lower TRI, use upper TRI instead.
-    if(isTRUE(ltr))
+    if(length(ltr) == 0 || ltr)
         x <- x[upper.tri(x, diag)]
         
     ## save matrix data

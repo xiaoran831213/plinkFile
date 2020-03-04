@@ -165,7 +165,7 @@ readBED <- function(pfx, row=NULL, col=NULL, quiet=TRUE)
 
 #' Read FAM file
 #'
-#' @param pfx prefix of a PLINK fileset.
+#' @param pfx prefix of a PLINK file set.
 #' @return data frame describing individuals,  loaded from the FAM file.
 #'
 #' @examples
@@ -184,7 +184,7 @@ readFAM <- function(pfx)
 
 #' Read BIM file
 #'
-#' @param pfx prefix of a PLINK fileset.
+#' @param pfx prefix of a PLINK file set.
 #' @return data frame describing genome variants, loaded from the BIM file.
 #' @export
 readBIM <- function(pfx)

@@ -2,9 +2,11 @@ Package: plinkFile
 Title: PLINK File Readers and Writers
 Version: 0.1.0
 Authors@R: person("Xiaoran", "Tong", email = "tongxia1@msu.edu", role = c("aut", "cre"))
-Description: provide functions that reads genotype data in PLINK BED fileset (surfixed by .bed, .bim, and .fam) into a R matrix, or scan a large genotype one variant at a time with little memory usage; it also reads/writes various type of genotype relatedness/kinship matrices (surfixed by .bin and .id) created by PLINK or GCTA.
-Depends: R (>= 3.0)
-License: MIT + file LICENSE
+Author: Xiaoran Tong [aut, cre]
+Maintainer: Xiaoran Tong <tongxia1@msu.edu>
+Description: Provide function that reads PLINK binary genotype into a R matrix, or scan the genotype one variant at a time like R apply, it also provides functions that reads and writes genotype relatedness/kinship matrices created by PLINK or GCTA. Currently there is no support for writing back into PLINK BED, it is best used for bringing genotype processed by PLINK and other tools into R workspace.
+Depends: R (>= 3.1)
+License: GPL (>= 2)
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 7.0.2
+RoxygenNote: 6.1.1
