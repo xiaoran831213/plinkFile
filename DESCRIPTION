@@ -4,9 +4,9 @@ Version: 0.1.0
 Authors@R: person("Xiaoran", "Tong", email = "tongxia1@msu.edu", role = c("aut", "cre"))
 Author: Xiaoran Tong [aut, cre]
 Maintainer: Xiaoran Tong <tongxia1@msu.edu>
-Description: Provide function that reads PLINK binary genotype into a R matrix, or scan the genotype one variant at a time like R apply, it also provides functions that reads and writes genotype relatedness/kinship matrices created by PLINK or GCTA. Currently there is no support for writing back into PLINK BED, it is best used for bringing genotype processed by PLINK and other tools into R workspace.
+Description: Provide function that reads binary genotype produced by 'PLINK' <https://www.cog-genomics.org/plink/1.9> into a R matrix, or scan the genotype one variant at a time like apply(), it also provides functions that reads and writes genotype relatedness/kinship matrices created by 'PLINK' or 'GCTA'. Currently it does not support writing back into 'PLINK' binary, it is best used for bringing data produced by 'PLINK' into R workspace.
 Depends: R (>= 3.1)
 License: GPL (>= 2)
 Encoding: UTF-8
 LazyData: true
-RoxygenNote: 6.1.1
+RoxygenNote: 7.0.2
