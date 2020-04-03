@@ -142,9 +142,12 @@ gid <- function(x, sep=".")
 #' rel <- readBSM(pfx)  # relatedness kernel matrix
 #' re2 <- rel^2         # 2nd order polynomial kernel
 #'
-#' out <- file.path(system.file("extdata", package="plinkFile"), "m20.re2")
-#' saveBSM(out, re2)
-#' dir(system.file("extdata", package="plinkFile"), "m20.re2") # new files
+#' tmp <- tempdir()
+#' dir.create(tmp, FALSE)
+#' out <- file.path(tmp, 'm20.re2')
+#' saveBSM(out, re2)    # save the polynomial kernel
+#' dir(tmp)             # show new files, then clean up
+#' unlink(tmp, recursive=TRUE)
 #' 
 #' @export
 saveBSM <- function(pfx, x, ltr=TRUE, diag=TRUE, unit=4L, fid=".")
@@ -275,29 +278,35 @@ readVCM <- function(pfx, fid=NULL) readBSM(paste0(pfx, ".grm.N"), fid=fid, id=pa
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
 #' gmx <- readBED(pfx)  # read genotype matrix from PLINK BED.
 #' gmx <- scale(gmx)    # standardize
+#' tmp <- tempdir()     # for example outputs
+#' dir.create(tmp, FALSE)
 #' 
 #' # kinship matrix as Gaussian kernel, built from the first 10 variants
 #' gmx.gau <- gmx[, +(1:10)]                 # the first 10 variants
 #' not.na.gau <- tcrossprod(!is.na(gmx.gau)) # variant count matrix
 #' kin.gau <- exp(as.matrix(-dist(gmx.gau, "euc")) / not.na.gau)
-#' out.gau <- file.path(system.file("extdata", package="plinkFile"), "m20.gau")
-#' saveGRM(out.gau, kin.gau, not.na.gau)  # gau.grm.* should appear
+#' print(kin.gau)                            # the Gaussian kernel
+#' out.gau <- file.path(tmp, "m20.gau")
+#' saveGRM(out.gau, kin.gau, not.na.gau)     # gau.grm.* should appear
 #'
 #' # kinship matrix as Laplacian kernel, built without the first 10 variants
 #' gmx.lap <- gmx[, -(1:10)]                 # drop the first 10 variants
 #' not.na.lap <- tcrossprod(!is.na(gmx.lap)) # variant count matrix
 #' kin.lap <- exp(as.matrix(-dist(gmx.lap, "man")) / not.na.lap)
-#' out.lap <- file.path(system.file("extdata", package="plinkFile"), "m20.lap")
-#' saveGRM(out.lap, kin.lap, not.na.lap)  # lap.grm.* should appear
+#' out.lap <- file.path(tmp, "m20.lap")
+#' print(kin.lap)                            # the Laplacian kernel
+#' saveGRM(out.lap, kin.lap, not.na.lap)     # lap.grm.* should appear
 #'
 #' # merge kinship in R language for a radius based function kernel matrix
 #' not.na.rbf <- not.na.gau + not.na.lap
 #' kin.rbf <- (kin.gau * not.na.gau + kin.lap * not.na.lap) / not.na.rbf
-#' out.rbf <- file.path(system.file("extdata", package="plinkFile"), "m20.rbf")
-#' saveGRM(out.rbf, kin.rbf, not.na.rbf)  # lap.grm.* should appear
+#' print(kin.rbf)
+#' out.rbf <- file.path(tmp, "m20.rbf")
+#' saveGRM(out.rbf, kin.rbf, not.na.rbf)     # rbf.grm.* should appear
 #'
-#' # check saved matrices
-#' dir(system.file("extdata", package="plinkFile"), "(gau|lap|rbf)")
+#' # show saved matrices, then clean up
+#' dir(tmp, "(gau|lap|rbf)")
+#' unlink(tmp, recursive=TRUE)
 #' 
 #' @export
 saveGRM <- function(pfx, grm, vcm=NULL, fid=".")
@@ -333,9 +342,8 @@ saveGRM <- function(pfx, grm, vcm=NULL, fid=".")
 
 #' Test Genetic Relatedness Matrix Reader
 #'
-#' Compare the read from genetic relatedness matrix created
-#' from the same genome segment but stored in different shapes
-#' and types.
+#' Compare the read from genetic relatedness matrix created from the same genome
+#' segment but stored in different shapes and types.
 testReadBSM <- function()
 {
     one <- function(pfx)
