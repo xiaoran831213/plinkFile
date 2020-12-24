@@ -1,23 +1,24 @@
-#' Decompress Byte Data
+#' Decode Byte Data
 #'
-#' For each SNP  (i.e., a row in the  BED), a byte encodes the up  to 4 genotype
-#' samples (2 bits each).
+#' Decodes bytes read from a BED into allele dosage or NA.
 #'
-#' The function decodes bytes read from a BED to allele dosage or NA.
+#' For each SNP (a logical line in the  BED), each byte decode into to 4 dosage
+#' samples. (2 bits each).
 #'
 #' @param B byte data in R "raw" mode
 #' @param N number of individuals in the byte data.
 #' @param quiet do not report (def=TRUE)
 #' 
 #' @return a N x P matrix of genotype, where P is the number of variants.
+#' @noRd
 dbd <- function(B, N, quiet=TRUE)
 {
-    M <- as.integer(ceiling(N / 4) * 4L) # round up to 4 persons
-    P <- length(B) / M * 4              # infer the number of variants
+    M <- as.integer(ceiling(N / 4) * 4L) # round to 4 persons
+    P <- length(B) / M * 4               # number of variants
 
     ## genotype matrix to be returned
     r <- matrix(0L, M, P)
-
+    
     ## Dictionary of 2 bits codings:
     ## 00->2: homozygous A1
     ## 01->3: missing
@@ -52,30 +53,85 @@ dbd <- function(B, N, quiet=TRUE)
     r
 }
 
+#' Encode Byte Data
+#'
+#' #' Decodes bytes read from a BED into allele dosage or NA.
+#'
+#' For each SNP (a logical line in the  BED), each byte decode into to 4 dosage
+#' samples. (2 bits each).
+#'
+#' @param D N x P dosage genotype data
+#' @param N number of individuals
+#' @param quiet do not report (def=TRUE)
+#' 
+#' @return a length `ceiling(N/4)` vector of bytes in R "raw" mode.
+#' @noRd
+ebd <- function(D, N, quiet=TRUE)
+{
+    M <- as.integer(ceiling(N / 4)) # round to 4 persons per byte
+    P <- length(D) / N              # number of variants
+    D[is.na(D)] <- 3L               # 3 <- NA
+    
+    ## bytes required
+    r <- matrix(raw(M * P), M, P)
+    
+    ## Dictionary of 2 bits codings:
+    ## 0->11: homozygous A2
+    ## 1->10: heterozygous
+    ## 2->00: homozygous A1
+    ## 3->01: missing
+    C <- as.raw(c(3, 2, 0, 1))
+
+    ## fill the bytes
+    m <- as.raw(0x03) # bit mask: 0x03 = 11000000
+    if(!quiet)
+        cat("converting ...\n")
+
+    if(!quiet)
+        cat("sample 1, 5,  9, ...\n")
+    i <- seq.int(1L, N , 4L); j <- seq_along(i)
+    r[j, ] <- r[j, ] | rawShift(C[D[i, ] + 1], 0)
+
+    if(!quiet)
+        cat("sample 2, 6, 10, ...\n")
+    i <- seq.int(2L, N , 4L); j <- seq_along(i)
+    r[j, ] <- r[j, ] | rawShift(C[D[i, ] + 1], 2)
+
+    if(!quiet)
+        cat("sample 3, 7, 11, ...\n")
+    i <- seq.int(3L, N , 4L); j <- seq_along(i)
+    r[j, ] <- r[j, ] | rawShift(C[D[i, ] + 1], 4)
+
+    if(!quiet)
+        cat("sample 4, 8, 12, ...\n")
+    i <- seq.int(4L, N , 4L); j <- seq_along(i)
+    r[j, ] <- r[j, ] | rawShift(C[D[i, ] + 1], 6)
+    
+    dim(r) <- NULL
+    r
+}
+
 
 #' Read BED file
 #'
-#' Read a BED file into a R matrix. This is meant for in-of-memory process of moderate
-#' to small sized genotype.
+#' Read a PLINK BED file into a R matrix.
 #'
-#' To scan a huge BED one varant at time without reading it into the memoty, see
-#' \code{\link{scanBED}} instead.
-#' 
-#' A BED (\emph{binary biallelic genotype table}) is comprised of three files
-#' (usually) sharing identical prefix:
+#' This is meant  for genotype that can  fit into system memory; the  size of R
+#' matrix is 16 times the size of the  BED file. To scan a large BED one varant
+#' at time without loading it entirely into the memoty, see [scanBED()].
+#'
+#' A PLINK1 binary fileset has three files,
 #' \itemize{
-#'   \item {pfx}.fam: table of N typed individuals
-#'   \item {pfx}.bim: table of P typed genomic variants (i.e., SNPs);
-#'   \item {pfx}.bed: genotype matrix of N rows and P columns stored in condensed
-#'   binary format.
-#' }
-#'
-#' The three files are commonly referred by their common prefix, e.g.:
-#'
-#' chrX.bed, chrX.fam, and chrX.bim, are jointly specified by "chrX".
+#'   \item{`pfx.fam`}: {text table of `N` individuals.}
+#'   \item{`pfx.bim`}: {text table of `P` genomic variants (i.e., SNPs).}
+#'   \item{`pfx.bed`}: {N x P genotype matrix in condensed binary format.}}
+#' 
+#' The three files  comprising a genotype data are typically  referred by their
+#' common  prefix,  for  example,  the X  chromosome  genotype  represented  by
+#' `chrX.bed`, `chrX.fam`, and `chrX.bim` are jointly refered by `chrX`.
 #' 
 #' @param pfx prefix of PLINK file set, or the fullname of a BED file.
-#' @param row  the row names: 1 =  use individual ID, 2 =  family and individual
+#' @param row the row names: 1 =  use individual ID, 2 =  family and individual
 #'     ID, def = NULL.
 #' @param col the column names: 1 =  use variant ID (i.e., rsID), 2 = CHR:POS, 3
 #'     = CHR:POS_A1_A2
@@ -83,7 +139,7 @@ dbd <- function(B, N, quiet=TRUE)
 #' @return genotype matrix with row individuals and column variants.
 #' 
 #' @examples
-#' bed <- system.file("extdata", 'm20.bed', package="plinkFile")
+#' bed <- system.file("extdata", 'm20.bed', package="plinkFile")i
 #' pfx <- sub("[.]bed$", "", bed)
 #' bed <- readBED(pfx, quiet=FALSE)
 #'
@@ -163,6 +219,41 @@ readBED <- function(pfx, row=NULL, col=NULL, quiet=TRUE)
     rt
 }
 
+
+#' Save BED file
+#'
+#' Save a R matrix into a PLINK BED file.
+#'
+#' This is meant for genotype small enough  to fit into system memory. The size
+#' of R matrix is 16  times the size of the BED file.  To  pipe a large BED one
+#' varant  at a  time into  another BED  without reading  it entirely  into the
+#' memoty, see [pipeBED()].
+#' 
+#' @param pfx prefix of the output file set, in PLINK1 binary format.
+#' @param bed N x P genotype matrix
+saveBED <- function(pfx, bed, quiet=TRUE)
+{
+    pfx <- sub("[.]bed", "", pfx)
+    bedFile <- paste0(pfx, '.bed')
+
+    ## open the BED file
+    fp <- file(bedFile, open="wb")
+
+    ## first 3 bytes must be 6c 1b 01
+    mb <- as.raw(c(0x6c, 0x1b, 0x01))
+    writeBin(mb, fp, 1L)
+    
+    ## rest of the data, binary encoded
+    bd <- ebd(bed, nrow(bed)) # byte data
+    writeBin(bd, fp, 1L)
+
+    ## close the BED file
+    close(fp)
+
+    invisible(NULL)
+}
+
+
 #' Read FAM file
 #'
 #' @param pfx prefix of a PLINK file set.
@@ -181,6 +272,7 @@ readFAM <- function(pfx)
     clz <- c(rep("character", 4), rep("integer", 2))
     utils::read.table(fn, FALSE, col.names=hdr, colClasses=clz)
 }
+
 
 #' Read BIM file
 #'
