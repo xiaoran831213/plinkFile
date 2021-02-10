@@ -139,7 +139,7 @@ ebd <- function(D, N, quiet=TRUE)
 #' @return genotype matrix with row individuals and column variants.
 #' 
 #' @examples
-#' bed <- system.file("extdata", 'm20.bed', package="plinkFile")i
+#' bed <- system.file("extdata", 'm20.bed', package="plinkFile")
 #' pfx <- sub("[.]bed$", "", bed)
 #' bed <- readBED(pfx, quiet=FALSE)
 #'
