@@ -231,6 +231,7 @@ readBED <- function(pfx, row=NULL, col=NULL, quiet=TRUE)
 #' 
 #' @param pfx prefix of the output file set, in PLINK1 binary format.
 #' @param bed N x P genotype matrix
+#' @param quiet do not report (def=TRUE)
 saveBED <- function(pfx, bed, quiet=TRUE)
 {
     pfx <- sub("[.]bed", "", pfx)
@@ -244,7 +245,7 @@ saveBED <- function(pfx, bed, quiet=TRUE)
     writeBin(mb, fp, 1L)
     
     ## rest of the data, binary encoded
-    bd <- ebd(bed, nrow(bed)) # byte data
+    bd <- ebd(bed, nrow(bed), quiet=quiet) # byte data
     writeBin(bd, fp, 1L)
 
     ## close the BED file
@@ -283,7 +284,7 @@ readBIM <- function(pfx)
 {
     fn <- paste0(pfx, '.bim')
     hdr <- c("chr", "id", "cm", "pos", "a1", "a2")
-    clz <- c("integer", "character", "integer", "integer", "character", "character")
+    clz <- c("character", "character", "integer", "integer", "character", "character")
     utils::read.table(fn, FALSE, col.names=hdr, colClasses=clz)
 }
 
