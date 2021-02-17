@@ -49,7 +49,7 @@ dbd <- function(B, N, quiet=TRUE)
 
     ## truncate padded, non-existing individuals
     if (N < M)
-        r <- r[seq.int(1L, N), ]
+        r <- r[seq.int(1L, N), , drop=FALSE]
     r
 }
 
@@ -111,6 +111,35 @@ ebd <- function(D, N, quiet=TRUE)
     r
 }
 
+#' Navigate Byte Data
+#'
+#' Jump to the start of a variant in a BED data.
+#'
+#' Each variant is a logical line in  the BED file, and each byte encode allele
+#' dosage of 4 individuals  (2 bits each).  The beginning of  the K th. variant
+#' is the K * up(N / 4) th. byte of the BED data stream.
+#'
+#' @param C opened file pointing to a BED
+#' @param N number of individuals in the byte data.
+#' @param j integer where to jump?
+#' 
+#' @return a N x P matrix of genotype, where P is the number of variants.
+#' @examples
+#' bed <- system.file("extdata", "000.bed", package="plinkFile")
+#' fam <- system.file("extdata", "000.fam", package="plinkFile")
+#' num <- length(readLines(fam))
+#' 
+#' con <- file(bed, open="rb")
+#' close(con)
+#' @noRd
+nbd <- function(C, N, j=0)
+{
+    ## bytes per variant, rounded to 4 persion per byte
+    M <- as.integer(ceiling(N / 4))
+
+    ## move the file pointer
+    seek(C, origin="current", where=M * j)
+}
 
 #' Read BED file
 #'
@@ -131,10 +160,10 @@ ebd <- function(D, N, quiet=TRUE)
 #' `chrX.bed`, `chrX.fam`, and `chrX.bim` are jointly refered by `chrX`.
 #' 
 #' @param pfx prefix of PLINK file set, or the fullname of a BED file.
-#' @param row the row names: 1 =  use individual ID, 2 =  family and individual
-#'     ID, def = NULL.
-#' @param col the column names: 1 =  use variant ID (i.e., rsID), 2 = CHR:POS, 3
-#'     = CHR:POS_A1_A2
+#' @param row row names: 1=IID, 2=FID.IID, def=NULL.
+#' @param col col names: 1=variant ID, 2= CHR:POS, 3=CHR:POS_A1_A2, def=NULL
+#' @param vfr from which variant? (def=1st)
+#' @param vto till which variant? (def=EOF)
 #' @param quiet suppress screen printing? (def=TRUE)
 #' @return genotype matrix with row individuals and column variants.
 #' 
@@ -145,7 +174,7 @@ ebd <- function(D, N, quiet=TRUE)
 #'
 #' @seealso {readBED}
 #' @export
-readBED <- function(pfx, row=NULL, col=NULL, quiet=TRUE)
+readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
 {
     pfx <- sub("[.]bed", "", pfx)
     ## the triplets
@@ -318,17 +347,23 @@ readBIM <- function(pfx)
 #'     to TRUE; otherwise,  a list with each element corresponding  to a variant
 #'     is returned.
 #'
-#' A  context  vaiable  ".i"  is  assigned to  the  environment  of  \code{FUN},
-#' therefore, one can  access the index of variant current  being processed from
-#' within the body of \code{FUN}.
+#' Helpful context information are assigned to the environment of \code{FUN},
+#' \itemize{
+#'   \item {.i}: index of the current visiting variant;
+#'   \item {.P}: number of variants;
+#'   \item {.N}: number of individuals.
+#' }
+#' for example, one can print progress from within the body of \code{FUN}.
 #'
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
 #' ret <- scanBED(pfx, function(g)
 #' {
-#'     af <- mean(g, na.rm=TRUE) / 2
-#'     maf <- min(af, 1 - af)
-#'     c(idx=.i, mu=mean(g, na.rm=TRUE), maf=maf, nas=sum(is.na(g)))
+#'     p <- mean(g, na.rm=TRUE) / 2
+#'     maf <- min(p, 1 - p)
+#'     mis <- sum(is.na(g)) / .N
+#'     pct <- round(.i / .P * 100, 2)
+#'     c(idx=.i, MAF=maf, MIS=mis, PCT=pct)
 #' })
 #' print(ret[1:5, ])
 #'
@@ -356,7 +391,7 @@ scanBED <- function(pfx, FUN, ..., simplify=TRUE)
             ## print(paste("Close", bedFile, fp))
             close(fp)
         }
-        stop("wrong magic numbers, PLINK BED may be outdated or damaged.")
+        stop("wrong magic numbers, PLINK BED may be compromised.")
     }
 
     ## scan the data
@@ -367,6 +402,9 @@ scanBED <- function(pfx, FUN, ..., simplify=TRUE)
     bpc <- bpv * vpc                    # bytes per chunk
     idx <- 0L                           # variant index
     cdx <- 1L                           # chunk index
+    env <- environment(FUN)
+    env[[".P"]] <- P
+    env[[".N"]] <- N
     ret <- list()
     while (length(chk <- readBin(fp, "raw", bpc)) > 0)
     {
@@ -375,10 +413,13 @@ scanBED <- function(pfx, FUN, ..., simplify=TRUE)
         for(j in seq(ncol(gmx)))  # go through variants
         {
             idx <- idx + 1L
+            env[[".i"]] <- idx
             environment(FUN)[[".i"]] <- idx  # contex: index
             ret[[idx]] <- FUN(gmx[, j], ...) # one variant
         }
-        cdx <- cdx + 1
+        ## msg <- sprintf("%4d %3d %4d\n", cdx, ncol(gmx), length(chk))
+        ## cat(msg)
+        ## cdx <- cdx + 1
     }
 
     ## close the BED file
@@ -387,11 +428,15 @@ scanBED <- function(pfx, FUN, ..., simplify=TRUE)
         ## print(paste("Close", bedFile, fp))
         close(fp)
     }
-
-    r <- simplify2array(ret)
-    if(is.matrix(r))
-        r <- t(r)
-    r
+    if(simplify)
+    {
+        .r <- try(simplify2array(ret), silent = TRUE)
+        if(!inherits(.r, 'try-error'))
+            ret <- .r
+    }
+    if(is.matrix(ret))
+        ret <- t(ret)
+    ret
 }
 
 #' Test BED Reader
