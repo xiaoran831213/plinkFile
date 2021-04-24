@@ -339,9 +339,12 @@ readBIM <- function(pfx)
 #' chrX.bed, chrX.fam, and chrX.bim, are jointly specified by "chrX".
 #'  
 #' @param pfx prefix of PLINK BED.
-#' @param FUN the function to process each variant.
-#' @param ...  additional argument to pass to \emph{\code{FUN}}.
-#' @param simplify TRUE to simplify the result as an array.
+#' @param FUN the function to process variant(s).
+#' @param ... additional argument to pass to \emph{\code{FUN}}.
+#' @param win window size (def=1, scan one variant at a time).
+#' @param buf buffer size in byptes (def=2^24, or 16 MB).
+#' @param simplify  TRUE to  simplify the  results to  an array,  or supply  a
+#'     function to simplify the result.
 #'
 #' @return an array with each row  corresponding to a variant if simplify is set
 #'     to TRUE; otherwise,  a list with each element corresponding  to a variant
@@ -349,27 +352,36 @@ readBIM <- function(pfx)
 #'
 #' Helpful context information are assigned to the environment of \code{FUN},
 #' \itemize{
-#'   \item {.i}: index of the current visiting variant;
+#'   \item {.i}: index of the current visiting variant(s);
+#'   \item {.w}: index of the current scanning window.
+#'   \item {.c}: number of chunk buffer swapped so far.
 #'   \item {.P}: number of variants;
 #'   \item {.N}: number of individuals.
 #' }
 #' for example, one can print progress from within the body of \code{FUN}.
 #'
+#' Use option [buf=] to specify a  larger buffer reduces the frequency of PLINK
+#' file visits,  which reduces non-computational overhead  when accessing large
+#' genotype data. The default is 2^24 bytes / 16 MB per chunk.
+#'
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
 #' ret <- scanBED(pfx, function(g)
 #' {
-#'     p <- mean(g, na.rm=TRUE) / 2
-#'     maf <- min(p, 1 - p)
-#'     mis <- sum(is.na(g)) / .N
+#'     .af <- colMeans(g, na.rm=TRUE) / 2
+#'     maf <- pmin(.af, 1 - .af)
+#'     mis <- colSums(is.na(g)) / .N
+#'     wnd <- .w
 #'     pct <- round(.i / .P * 100, 2)
-#'     c(idx=.i, MAF=maf, MIS=mis, PCT=pct)
-#' })
-#' print(ret[1:5, ])
-#'
+#'     cbind(chk=.c, wnd=.w, idx=.i, MAF=maf, MIS=mis, PCT=pct)
+#' },
+#' win=13, simplify=rbind, buf=2^18)
+#' 
+#' print(ret[  1:30, ])
+#' print(ret[500:550 ])
 #' @seealso {readBED}
 #' @export
-scanBED <- function(pfx, FUN, ..., simplify=TRUE)
+scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
 {
     ## PLINK file set
     bedFile <- paste0(pfx, '.bed')
@@ -395,31 +407,37 @@ scanBED <- function(pfx, FUN, ..., simplify=TRUE)
     }
 
     ## scan the data
-    csz <- 2^19                         # chunk size: 512KB
-    dl <- file.size(bedFile) - 3L       # bytes remaining
-    bpv <- dl %/% P                     # bytes per variant
-    vpc <- min(P, max(csz %/% bpv, 1))  # variants per chunk
-    bpc <- bpv * vpc                    # bytes per chunk
-    idx <- 0L                           # variant index
-    cdx <- 1L                           # chunk index
+    dl <- file.size(bedFile) - 3L        # bytes remaining
+    bpv <- dl %/% P                      # bytes per variant
+    vpc <- max(buf %/% bpv, win)         # variants per chunk
+    vpc <- ceiling(vpc / win) * win      # round up to full window
+    bpc <- bpv * vpc                     # bytes per chunk
+    idx <- 0L                            # variant index
+    wdx <- 0L                            # window index
+    cdx <- 0L                            # chunk index
     env <- environment(FUN)
     env[[".P"]] <- P
     env[[".N"]] <- N
     ret <- list()
     while (length(chk <- readBin(fp, "raw", bpc)) > 0)
     {
+        cdx <- cdx + 1
+        env[[".c"]] <- cdx
         ## cat("Chunk #", cdx, "\n") # process a chunk
-        gmx <- dbd(chk, N)        # genotype matrix
-        for(j in seq(ncol(gmx)))  # go through variants
+        gmx <- dbd(chk, N)               # genotype matrix
+        for(j in seq(1, ncol(gmx), win)) # go through windows
         {
-            idx <- idx + 1L
+            jdx <- seq(j, min(j + win - 1, ncol(gmx)))
+            idx <- wdx * win + seq_along(jdx)
+            wdx <- wdx + 1L
+            ## cat("Window #", wdx, "\n") # process a window
             env[[".i"]] <- idx
-            environment(FUN)[[".i"]] <- idx  # contex: index
-            ret[[idx]] <- FUN(gmx[, j], ...) # one variant
+            env[[".w"]] <- wdx
+            ## process a window of variants
+            ret[[wdx]] <- FUN(gmx[, jdx, drop=FALSE], ...)
         }
         ## msg <- sprintf("%4d %3d %4d\n", cdx, ncol(gmx), length(chk))
         ## cat(msg)
-        ## cdx <- cdx + 1
     }
 
     ## close the BED file
@@ -428,14 +446,16 @@ scanBED <- function(pfx, FUN, ..., simplify=TRUE)
         ## print(paste("Close", bedFile, fp))
         close(fp)
     }
-    if(simplify)
-    {
+
+    .r <- NULL
+    ## try provided simplifier
+    if(is.character(simplify) || is.function(simplify))
+        .r <- try(do.call(simplify, ret), silent = TRUE)
+    ## try default simplifier
+    if(inherits(.r, 'try-error') || isTRUE(simplify))
         .r <- try(simplify2array(ret), silent = TRUE)
-        if(!inherits(.r, 'try-error'))
-            ret <- .r
-    }
-    if(is.matrix(ret))
-        ret <- t(ret)
+    if(!is.null(.r) && !inherits(.r, 'try-error'))
+       ret <- .r
     ret
 }
 
@@ -455,20 +475,4 @@ testReadBED <- function()
         stop("Failed BED reading test:", pfx)
     cat("Passed BED reading test: ", pfx, "\n", sep="")
     invisible(TRUE)
-}
-
-
-#' Test BED Scanner
-#'
-#' Go through file set "000" under "extdata", summerize every SNP.
-testScanBED <- function()
-{
-    pfx <- sub("[.]bed$", "", system.file("extdata", '000.bed', package="plinkFile"))
-    ret <- scanBED(pfx, function(g)
-    {
-        af <- mean(g, na.rm=TRUE) / 2
-        maf <- min(af, 1 - af)
-        c(mu=mean(g, na.rm=TRUE), maf=maf, nas=sum(is.na(g)))
-    })
-    ret
 }
