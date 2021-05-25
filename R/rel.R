@@ -100,16 +100,20 @@ readBSM <- function(pfx, dgv=1, fid=NULL, id=NULL, bin=NULL)
 
 #' Infer Sample ID from a symmetric matrix
 #'
-#' Exam the row name for family and individual id.
+#' Infer family id (FID) and individual id (IID) from row names.
 #'
-#' For matrices without rowname, id are automatically generated.
+#' If a matrix has no row names, the IDs will be automatically generated.
 #' 
-#' By common practice, the  row names or a matrix are in  the form of [FID.]IID.
-#' Samples without family ID are given one identical to their individual ID.
+#' By default, row names are assumed to  be FID.IID or IID, that is, faimily ID
+#' and individual ID connected by a ".", or just the individual ID.
 #'
-#' @param x  matrix
-#' @param sep separator between FID and IID forming the sample ID
-#' @return data.frame of inferred family ID and individual ID.
+#' When family ID is  absent, the individual ID fill in act  as family ID, that
+#' is, a family of an single individual.
+#'
+#' @param x the target matrix
+#' @param sep separator between FID and IID (def=".").
+#' @return data fram of family ID and individual ID infered from row names.
+#' @noRd
 gid <- function(x, sep=".")
 {
     N <- nrow(x)

@@ -254,11 +254,9 @@ readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
 #' Save a R matrix into a PLINK BED file.
 #'
 #' This is meant for genotype small enough  to fit into system memory. The size
-#' of R matrix is 16  times the size of the BED file.  To  pipe a large BED one
-#' varant  at a  time into  another BED  without reading  it entirely  into the
-#' memoty, see [pipeBED()].
+#' of R matrix is 16  times the size of the BED file.
 #' 
-#' @param pfx prefix of the output file set, in PLINK1 binary format.
+#' @param pfx prefix of the output file set, in PLINK1 BED format.
 #' @param bed N x P genotype matrix
 #' @param quiet do not report (def=TRUE)
 saveBED <- function(pfx, bed, quiet=TRUE)
@@ -286,14 +284,28 @@ saveBED <- function(pfx, bed, quiet=TRUE)
 
 #' Read FAM file
 #'
-#' @param pfx prefix of a PLINK file set.
-#' @return data frame describing individuals,  loaded from the FAM file.
+#' Read sample meta-data form the *fam* file of a PLINK1 BED fileset.
 #'
+#' There are six columns in a *bim* file
+#' * fid: family ID;
+#' * iid: individual ID, default row name used by `[readBED]`;
+#' * mom: maternal ID;
+#' * dad: paternal ID;
+#' * sex: individual sex.
+#' * phe: phenotype, not often used;
+#'
+#' The PLINK1 *bim* file has no header line, this is changed in PLINK2.
+#'
+#' The columns "sex" and "phe" are  mostly the legency of early GWAS, nowerdays
+#' it is common to provide sex, among other covariates, and multiple phenotypes
+#' in a separate file.
+#' 
+#' @param pfx prefix of a PLINK file set.
+#' @return meta data frame describing individuals, loaded from "{_pfx_.fam}".
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
-#' bed <- readBED(pfx, row=1, col=1, quiet=FALSE)
-#' bed
-#' 
+#' fam <- readFAM(pfx)
+#' fam
 #' @export
 readFAM <- function(pfx)
 {
@@ -306,8 +318,23 @@ readFAM <- function(pfx)
 
 #' Read BIM file
 #'
+#' Get variant meta-data form the *bim* file of a PLINK1 BED fileset.
+#'
+#' @details
+#' There are six columns in a *bim* file
+#' * chr: chromosme of the variant
+#' * id: variant id, such as an RS number;
+#' * cm: centimorgan units from the tip of the chromosome;
+#' * pos: position in basepair.
+#' * a1: allele 1, the one counted as dosage.
+#' * a2: allele 2.
+#' 
 #' @param pfx prefix of a PLINK file set.
-#' @return data frame describing genome variants, loaded from the BIM file.
+#' @return meta data frame describing the variants, loaded from "{_pfx_.bim}".
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' bim <- readBIM(pfx)
+#' bim
 #' @export
 readBIM <- function(pfx)
 {
@@ -317,53 +344,12 @@ readBIM <- function(pfx)
     utils::read.table(fn, FALSE, col.names=hdr, colClasses=clz)
 }
 
-
-#' Scan genotypes in PLINK BED(s)
+#' @describeIn bed apply a function to variants in a PLINK1 BED fileset
 #'
-#' Go through a BED file set and visit  one variant at a time. This is meant for
-#' out-of-memory screening of huge genotype, such as a GWAS study.
+#' User scripts in `FUN` has no side effects on environment of `scanBED`.
 #'
-#' To read an entire BED into a R matrix, see \code{\link{readBED}} instead.
-#' 
-#' A BED (\emph{binary biallelic genotype table}) is comprised of three files
-#' (usually) sharing identical prefix:
-#' \itemize{
-#'   \item {pfx}.fam: table of N typed individuals
-#'   \item {pfx}.bim: table of P typed genomic variants (i.e., SNPs);
-#'   \item {pfx}.bed: genotype matrix of N rows and P columns stored in condensed
-#'   binary format.
-#' }
-#'
-#' The three files are commonly referred by their common prefix, e.g.:
-#'
-#' chrX.bed, chrX.fam, and chrX.bim, are jointly specified by "chrX".
-#'  
-#' @param pfx prefix of PLINK BED.
-#' @param FUN the function to process variant(s).
-#' @param ... additional argument to pass to \emph{\code{FUN}}.
-#' @param win window size (def=1, scan one variant at a time).
-#' @param buf buffer size in byptes (def=2^24, or 16 MB).
-#' @param simplify  TRUE to  simplify the  results to  an array,  or supply  a
-#'     function to simplify the result.
-#'
-#' @return an array with each row  corresponding to a variant if simplify is set
-#'     to TRUE; otherwise,  a list with each element corresponding  to a variant
-#'     is returned.
-#'
-#' Helpful context information are assigned to the environment of \code{FUN},
-#' \itemize{
-#'   \item {.i}: index of the current visiting variant(s);
-#'   \item {.w}: index of the current scanning window.
-#'   \item {.c}: number of chunk buffer swapped so far.
-#'   \item {.P}: number of variants;
-#'   \item {.N}: number of individuals.
-#' }
-#' for example, one can print progress from within the body of \code{FUN}.
-#'
-#' Use option [buf=] to specify a  larger buffer reduces the frequency of PLINK
-#' file visits,  which reduces non-computational overhead  when accessing large
-#' genotype data. The default is 2^24 bytes / 16 MB per chunk.
-#'
+#' @param FUN a function to process each window of variants;
+#' @param ... additional argument for *`FUN`* when `scanBED` is used.
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
 #' ret <- scanBED(pfx, function(g)
@@ -373,13 +359,13 @@ readBIM <- function(pfx)
 #'     mis <- colSums(is.na(g)) / .N
 #'     wnd <- .w
 #'     pct <- round(.i / .P * 100, 2)
-#'     cbind(chk=.c, wnd=.w, idx=.i, MAF=maf, MIS=mis, PCT=pct)
+#'     cbind(buf=.b, wnd=.w, idx=.i, MAF=maf, MIS=mis, PCT=pct)
 #' },
 #' win=13, simplify=rbind, buf=2^18)
 #' 
-#' print(ret[  1:30, ])
-#' print(ret[500:550 ])
-#' @seealso {readBED}
+#' print(ret[   1:  30, ])
+#' print(ret[3300:3340, ])
+#' @seealso {readBED, loopBED}
 #' @export
 scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
 {
@@ -406,24 +392,27 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
         stop("wrong magic numbers, PLINK BED may be compromised.")
     }
 
-    ## scan the data
-    dl <- file.size(bedFile) - 3L        # bytes remaining
-    bpv <- dl %/% P                      # bytes per variant
-    vpc <- max(buf %/% bpv, win)         # variants per chunk
-    vpc <- ceiling(vpc / win) * win      # round up to full window
-    bpc <- bpv * vpc                     # bytes per chunk
-    idx <- 0L                            # variant index
-    wdx <- 0L                            # window index
-    cdx <- 0L                            # chunk index
-    env <- environment(FUN)
+    ## praperation
+    byt <- file.size(bedFile) - 3L  # bytes to go through
+    bpv <- byt %/% P                # bytes per variant
+    vpb <- max(buf %/% bpv, win)    # variants per chunk
+    vpb <- ceiling(vpb / win) * win # round up to full window
+    bpc <- bpv * vpb                # bytes per chunk
+    idx <- 0L                       # variant index
+    wdx <- 0L                       # window index
+    bdx <- 0L                       # buffer chunk index
+    env <- environment(FUN)         # processing environment
     env[[".P"]] <- P
     env[[".N"]] <- N
+    env[[".W"]] <- as.integer(ceiling(P / win))
+    env[[".B"]] <- as.integer(ceiling(byt / bpc))
+    ## go through the binary data
     ret <- list()
     while (length(chk <- readBin(fp, "raw", bpc)) > 0)
     {
-        cdx <- cdx + 1
-        env[[".c"]] <- cdx
-        ## cat("Chunk #", cdx, "\n") # process a chunk
+        bdx <- bdx + 1
+        env[[".b"]] <- bdx
+        ## cat("Chunk #", bdx, "\n") # process a chunk
         gmx <- dbd(chk, N)               # genotype matrix
         for(j in seq(1, ncol(gmx), win)) # go through windows
         {
@@ -433,10 +422,11 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
             ## cat("Window #", wdx, "\n") # process a window
             env[[".i"]] <- idx
             env[[".w"]] <- wdx
+            env[[".p"]] <- length(jdx)
             ## process a window of variants
             ret[[wdx]] <- FUN(gmx[, jdx, drop=FALSE], ...)
         }
-        ## msg <- sprintf("%4d %3d %4d\n", cdx, ncol(gmx), length(chk))
+        ## msg <- sprintf("%4d %3d %4d\n", bdx, ncol(gmx), length(chk))
         ## cat(msg)
     }
 
@@ -458,6 +448,108 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
        ret <- .r
     ret
 }
+
+#' @describeIn bed apply a function to variants in a PLINK1 BED
+#'
+#' User scripts in `EXP` have side effects on the environment of `loopBED`.
+#' @param EXP R expression to process each window of variants;
+#' @param GVR R variable name to assign the visiting window to (def="g").
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
+#' ret <- loopBED(pfx,
+#' {
+#'     .af <- colMeans(g, na.rm=TRUE) / 2
+#'     .sg <- .af * (1 - .af)
+#'     cbind(idx=.i, win=.w, alf=.af, var=.sg, pct=round(.w / .W, 2))
+#' },
+#' win=13, GVR="g", simplify=rbind, buf=2^18)
+#' 
+#' print(ret[   1:  30, ])
+#' print(ret[3300:3340, ])
+#' @export
+loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
+{
+    ## PLINK file set
+    bedFile <- paste0(pfx, '.bed')
+    famFile <- paste0(pfx, '.fam')
+    bimFile <- paste0(pfx, '.bim')
+
+    ## number of samples and features
+    N <- lc(famFile)
+    P <- lc(bimFile)
+
+    ## open the the BED file
+    fp <- file(bedFile, open="rb")
+
+    ## first 3 bytes must be 6c 1b 01
+    if(any(readBin(fp, "raw", 3L) != as.raw(c(0x6c, 0x1b, 0x01))))
+    {
+        if(isOpen(fp, "rb"))
+        {
+            ## print(paste("Close", bedFile, fp))
+            close(fp)
+        }
+        stop("wrong magic numbers, PLINK BED may be compromised.")
+    }
+
+    ## scan the data
+    byt <- file.size(bedFile) - 3L  # bytes to go through
+    bpv <- byt %/% P                # bytes per variant
+    vpb <- max(buf %/% bpv, win)    # variants per chunk
+    vpb <- ceiling(vpb / win) * win # round up to full window
+    bpc <- bpv * vpb                # bytes per chunk
+    idx <- 0L                       # variant index
+    wdx <- 0L                       # window index
+    bdx <- 0L                       # buffer index
+    EXP <- substitute(EXP)          # expression
+    env <- parent.frame()           # processing environment
+    env[[".P"]] <- P
+    env[[".N"]] <- N
+    env[[".W"]] <- as.integer(ceiling(P / win))
+    env[[".B"]] <- as.integer(ceiling(byt / bpc))
+    ret <- list()
+    while (length(chk <- readBin(fp, "raw", bpc)) > 0)
+    {
+        bdx <- bdx + 1
+        env[[".b"]] <- bdx
+        ## cat("Chunk #", bdx, "\n") # process a chunk
+        gmx <- dbd(chk, N)               # genotype matrix
+        for(j in seq(1, ncol(gmx), win)) # go through windows
+        {
+            jdx <- seq(j, min(j + win - 1, ncol(gmx)))
+            idx <- wdx * win + seq_along(jdx)
+            wdx <- wdx + 1L
+            ## cat("Window #", wdx, "\n") # process a window
+            env[[".i"]] <- idx
+            env[[".w"]] <- wdx
+            env[[".p"]] <- length(jdx)
+            env[[GVR]] <- gmx[, jdx, drop=FALSE]
+            ## process a window of variants
+            ret[[wdx]] <- eval(EXP, env)
+        }
+        ## msg <- sprintf("%4d %3d %4d\n", bdx, ncol(gmx), length(chk))
+        ## cat(msg)
+    }
+
+    ## close the BED file
+    if(isOpen(fp, "rb"))
+    {
+        ## print(paste("Close", bedFile, fp))
+        close(fp)
+    }
+
+    .r <- NULL
+    ## try provided simplifier
+    if(is.character(simplify) || is.function(simplify))
+        .r <- try(do.call(simplify, ret), silent = TRUE)
+    ## try default simplifier
+    if(inherits(.r, 'try-error') || isTRUE(simplify))
+        .r <- try(simplify2array(ret), silent = TRUE)
+    if(!is.null(.r) && !inherits(.r, 'try-error'))
+       ret <- .r
+    ret
+}
+
 
 #' Test BED Reader
 #'
