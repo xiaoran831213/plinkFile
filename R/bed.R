@@ -405,13 +405,14 @@ readVID <- function(pfx, opt=NULL, bim=NULL)
                 else
                     vid <- .name(P, alpha=c(0:9, letters[1:6]), pfx="0x")
             }
-            else
-            {
-                if(length(opt) != P)
-                    stop(gettextf("unequal num of IDs and variants (%d vs. %d).", length(opt), P))
-                vid <- opt
-            }
         }
+    }
+    else if(length(opt) > 1)
+    {
+        P <- if(is.null(bim)) nr(paste0(pfx, ".bim")) else nrow(bim)
+        if(length(opt) != P)
+            stop(gettextf("unequal num of IDs and variants (%d and %d).", length(opt), P))
+        vid <- opt
     }
     else
         stop(gettextf("fail to get variant IDs from \"%s\" with opt=%s.", pfx, opt))
