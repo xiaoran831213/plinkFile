@@ -1,4 +1,4 @@
-#' Line Count
+#' number of rows
 #'
 #' Count the occurance of '\\n', much faster than \code{readLine} and
 #' \code{read.table}. Although slower than the unix command "wc -l",
@@ -6,7 +6,7 @@
 #'
 #' @param f the file name, or a connection.
 #' @noRd
-lc <- function(f)
+nr <- function(f)
 {
     f <- file(f, open="rb")                        
     n <- 0L
@@ -20,6 +20,16 @@ lc <- function(f)
     n
 }
 
+#' number of fields
+#'
+#' Count the columns according to the first line.
+#'
+#' @param f the file name, or a connection
+#' @noRd
+nf <- function(f)
+{
+    length(scan(f, "\t", nlines = 1, quiet = TRUE))
+}
 
 i2b <- function(i, n=1)
 {

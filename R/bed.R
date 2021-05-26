@@ -195,7 +195,7 @@ readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
     else
     {
         row <- NULL
-        N <- lc(famFile)
+        N <- nr(famFile)
     }
 
     if(is.numeric(col) && col > 0)
@@ -213,7 +213,7 @@ readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
     else
     {
         col <- NULL
-        P <- lc(bimFile)
+        P <- nr(bimFile)
     }
 
     ## open the the BED file
@@ -323,11 +323,11 @@ readFAM <- function(pfx)
 #' @details
 #' There are six columns in a *bim* file
 #' * chr: chromosme of the variant
-#' * id: variant id, such as an RS number;
-#' * cm: centimorgan units from the tip of the chromosome;
-#' * pos: position in basepair.
-#' * a1: allele 1, the one counted as dosage.
-#' * a2: allele 2.
+#' * vid: variant id, such as an RS number;
+#' * cmg: position by centimorgan;
+#' * bps: position by basepairs;
+#' * al1: allele 1, the one counted as dosage.
+#' * al2: allele 2.
 #' 
 #' @param pfx prefix of a PLINK file set.
 #' @return meta data frame describing the variants, loaded from "{_pfx_.bim}".
@@ -339,18 +339,95 @@ readFAM <- function(pfx)
 readBIM <- function(pfx)
 {
     fn <- paste0(pfx, '.bim')
-    hdr <- c("chr", "id", "cm", "pos", "a1", "a2")
+    hdr <- c("chr", "vid", "cmg", "bps", "al1", "al2")
     clz <- c("character", "character", "integer", "integer", "character", "character")
     utils::read.table(fn, FALSE, col.names=hdr, colClasses=clz)
 }
 
+#' read variant ID
+#'
+#' Generate variant ID automatically, or based on a *bim* file.
+#'
+#' @details
+#' The option (`opt`) can be:
+#' *  1 = the 2nd column in _pfx_.bim (default),
+#' *  2 = formated as %CHR(02d):%BPS(09d),
+#' *  3 = formated as %CHR(02d):%BPS(09d)_AL1(s)_AL2(s)
+#' *  0 = nothing
+#' * -1 = numbering of variants, decimal
+#' * -1 = numbering of variants, zero-padded, fixed length decimal
+#' * -2 = numbering of variants, zero-padded, fixed length hexedemical
+#' * or, a vector of IDs to use.
+#' 
+#' @param pfx prefix of a PLINK file set, in particualar, "_pfx_.bim".
+#' @param opt option (def=1, use the 2nd column in _pfx_.bim).
+#' @param bim table of variants already loaded via `readBIM(pfx)` (def=NULL).
+#' @return a vector of variant ID
+#' @examples
+#' # read variant ID
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' vid <- readVID(pfx)
+#' head(vid)
+#' tail(vid)
+#' @export
+readVID <- function(pfx, opt=NULL, bim=NULL)
+{
+    if(is.null(opt))
+        opt <- 1
+    if(is.numeric(opt) && length(opt) == 1)
+    {
+        if(opt > 0)
+        {
+            if(is.null(bim))
+                bim <- readBIM(pfx)
+            vid <- with(bim,
+            {
+                if(opt == 1)
+                    vid
+                else if(opt == 2)
+                    sprintf("%02s:%09d", chr, bps)
+                else
+                    sprintf("%02s:%09d_%s_%s", chr, bps, al1, al2)
+            })
+            P <- length(vid)
+        }
+        else
+        {
+            P <- if(is.null(bim)) nr(paste0(pfx, ".bim")) else nrow(bim)
+            if(length(opt) == 1)
+            {
+                if(opt == 0)
+                    vid <- NULL
+                else if(opt == -1)
+                    vid <- sprintf("%d", seq(P))
+                else if(opt == -2)
+                    vid <- .name(P, alpha=c(0:9))
+                else
+                    vid <- .name(P, alpha=c(0:9, letters[1:6]), pfx="0x")
+            }
+            else
+            {
+                if(length(opt) != P)
+                    stop(gettextf("unequal num of IDs and variants (%d vs. %d).", length(opt), P))
+                vid <- opt
+            }
+        }
+    }
+    else
+        stop(gettextf("fail to get variant IDs from \"%s\" with opt=%s.", pfx, opt))
+    vid
+}
+
 #' @describeIn bed apply a function to variants in a PLINK1 BED fileset
 #'
-#' User scripts in `FUN` has no side effects on environment of `scanBED`.
+#' The scripts in `FUN` has no side effects on environment of `scanBED`.
 #'
 #' @param FUN a function to process each window of variants;
 #' @param ... additional argument for *`FUN`* when `scanBED` is used.
+#' @param win window size - the number of variants passed to `FUN` per iteration.
+#' @param vid variant ID option (def=1, use the 2nd column in _pfx_.bim).
 #' @examples
+#' ## traverse genotype, apply R function without side effects
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
 #' ret <- scanBED(pfx, function(g)
 #' {
@@ -358,16 +435,15 @@ readBIM <- function(pfx)
 #'     maf <- pmin(.af, 1 - .af)
 #'     mis <- colSums(is.na(g)) / .N
 #'     wnd <- .w
-#'     pct <- round(.i / .P * 100, 2)
+#'     pct <- round(.w / .W * 100, 2)
 #'     cbind(buf=.b, wnd=.w, idx=.i, MAF=maf, MIS=mis, PCT=pct)
 #' },
 #' win=13, simplify=rbind, buf=2^18)
-#' 
-#' print(ret[   1:  30, ])
-#' print(ret[3300:3340, ])
-#' @seealso {readBED, loopBED}
+#' head(ret)
+#' tail(ret)
+#'
 #' @export
-scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
+scanBED <- function(pfx, FUN, ..., win=1, vid=NULL, buf=2^24, simplify=TRUE)
 {
     ## PLINK file set
     bedFile <- paste0(pfx, '.bed')
@@ -375,22 +451,12 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
     bimFile <- paste0(pfx, '.bim')
 
     ## number of samples and features
-    N <- lc(famFile)
-    P <- lc(bimFile)
+    N <- nr(famFile)
+    vid <- readVID(pfx, vid)
+    P <- if(is.null(vid)) nr(bimFile) else length(vid)
 
     ## open the the BED file
-    fp <- file(bedFile, open="rb")
-
-    ## first 3 bytes must be 6c 1b 01
-    if(any(readBin(fp, "raw", 3L) != as.raw(c(0x6c, 0x1b, 0x01))))
-    {
-        if(isOpen(fp, "rb"))
-        {
-            ## print(paste("Close", bedFile, fp))
-            close(fp)
-        }
-        stop("wrong magic numbers, PLINK BED may be compromised.")
-    }
+    fp <- fp <- .try.open.bed(bedFile)
 
     ## praperation
     byt <- file.size(bedFile) - 3L  # bytes to go through
@@ -398,7 +464,6 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
     vpb <- max(buf %/% bpv, win)    # variants per chunk
     vpb <- ceiling(vpb / win) * win # round up to full window
     bpc <- bpv * vpb                # bytes per chunk
-    idx <- 0L                       # variant index
     wdx <- 0L                       # window index
     bdx <- 0L                       # buffer chunk index
     env <- environment(FUN)         # processing environment
@@ -414,6 +479,8 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
         env[[".b"]] <- bdx
         ## cat("Chunk #", bdx, "\n") # process a chunk
         gmx <- dbd(chk, N)               # genotype matrix
+        if(!is.null(vid))                # vid -> column name
+            colnames(gmx) <- vid[seq(wdx * win + 1, len=ncol(gmx))]
         for(j in seq(1, ncol(gmx), win)) # go through windows
         {
             jdx <- seq(j, min(j + win - 1, ncol(gmx)))
@@ -437,37 +504,32 @@ scanBED <- function(pfx, FUN, ..., win=1, buf=2^24, simplify=TRUE)
         close(fp)
     }
 
-    .r <- NULL
-    ## try provided simplifier
-    if(is.character(simplify) || is.function(simplify))
-        .r <- try(do.call(simplify, ret), silent = TRUE)
-    ## try default simplifier
-    if(inherits(.r, 'try-error') || isTRUE(simplify))
-        .r <- try(simplify2array(ret), silent = TRUE)
-    if(!is.null(.r) && !inherits(.r, 'try-error'))
-       ret <- .r
+    ret <- .try.simplify(ret, simplify)
     ret
 }
 
-#' @describeIn bed apply a function to variants in a PLINK1 BED
+#' @describeIn bed evaluate an expression on variants in a PLINK1 BED
 #'
-#' User scripts in `EXP` have side effects on the environment of `loopBED`.
-#' @param EXP R expression to process each window of variants;
-#' @param GVR R variable name to assign the visiting window to (def="g").
+#' The scripts in `EXP` have side effects on the environment of `loopBED`.
+#' @param EXP a R expression to evaluate with each window of variants;
+#' @param GVR a R variable name to assign the window to (def="g").
+#' @param vid option for variant IDs (def=1, the 2nd column in _pfx_.bim).
 #' @examples
+#' ## traversing genotype, evaluate R expression with side effects
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
-#' ret <- loopBED(pfx,
+#' ret <- list() # use side effect to keep the result of each window.
+#' loopBED(pfx,
 #' {
-#'     .af <- colMeans(g, na.rm=TRUE) / 2
-#'     .sg <- .af * (1 - .af)
-#'     cbind(idx=.i, win=.w, alf=.af, var=.sg, pct=round(.w / .W, 2))
+#'     af <- colMeans(gt, na.rm=TRUE) / 2
+#'     sg <- af * (1 - af)
+#'     ret[[.w]] <- cbind(wnd=.w, alf=af, var=sg)
 #' },
-#' win=13, GVR="g", simplify=rbind, buf=2^18)
-#' 
-#' print(ret[   1:  30, ])
-#' print(ret[3300:3340, ])
+#' win=13, GVR="gt", vid=3, buf=2^18)
+#' head(ret)
+#' tail(ret)
+#'
 #' @export
-loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
+loopBED <- function(pfx, EXP, GVR="g", win=1, vid=1, buf=2^24, simplify=TRUE)
 {
     ## PLINK file set
     bedFile <- paste0(pfx, '.bed')
@@ -475,22 +537,12 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
     bimFile <- paste0(pfx, '.bim')
 
     ## number of samples and features
-    N <- lc(famFile)
-    P <- lc(bimFile)
+    N <- nr(famFile)
+    vid <- readVID(pfx, vid)
+    P <- if(is.null(vid)) nr(bimFile) else length(vid)
 
     ## open the the BED file
-    fp <- file(bedFile, open="rb")
-
-    ## first 3 bytes must be 6c 1b 01
-    if(any(readBin(fp, "raw", 3L) != as.raw(c(0x6c, 0x1b, 0x01))))
-    {
-        if(isOpen(fp, "rb"))
-        {
-            ## print(paste("Close", bedFile, fp))
-            close(fp)
-        }
-        stop("wrong magic numbers, PLINK BED may be compromised.")
-    }
+    fp <- .try.open.bed(bedFile)
 
     ## scan the data
     byt <- file.size(bedFile) - 3L  # bytes to go through
@@ -498,7 +550,6 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
     vpb <- max(buf %/% bpv, win)    # variants per chunk
     vpb <- ceiling(vpb / win) * win # round up to full window
     bpc <- bpv * vpb                # bytes per chunk
-    idx <- 0L                       # variant index
     wdx <- 0L                       # window index
     bdx <- 0L                       # buffer index
     EXP <- substitute(EXP)          # expression
@@ -514,6 +565,8 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
         env[[".b"]] <- bdx
         ## cat("Chunk #", bdx, "\n") # process a chunk
         gmx <- dbd(chk, N)               # genotype matrix
+        if(!is.null(vid))                # vid -> column name
+            colnames(gmx) <- vid[seq(wdx * win + 1, len=ncol(gmx))]
         for(j in seq(1, ncol(gmx), win)) # go through windows
         {
             jdx <- seq(j, min(j + win - 1, ncol(gmx)))
@@ -527,17 +580,38 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
             ## process a window of variants
             ret[[wdx]] <- eval(EXP, env)
         }
-        ## msg <- sprintf("%4d %3d %4d\n", bdx, ncol(gmx), length(chk))
-        ## cat(msg)
+        ## cat(sprintf("%4d %3d %4d\n", bdx, ncol(gmx), length(chk)))
     }
-
     ## close the BED file
     if(isOpen(fp, "rb"))
     {
-        ## print(paste("Close", bedFile, fp))
         close(fp)
     }
 
+    ret <- .try.simplify(ret, simplify)
+    invisible(ret)
+}
+
+.try.open.bed <- function(fn)
+{
+    ## open the the BED file
+    fp <- file(fn, open="rb")
+
+    ## first 3 bytes must be 6c 1b 01
+    if(any(readBin(fp, "raw", 3L) != as.raw(c(0x6c, 0x1b, 0x01))))
+    {
+        if(isOpen(fp, "rb"))
+        {
+            ## print(paste("Close", bedFile, fp))
+            close(fp)
+        }
+        stop(gettextf("wrong magic numbers, \"%s\" compromised.", fn))
+    }
+    fp
+}
+
+.try.simplify <- function(ret, simplify)
+{
     .r <- NULL
     ## try provided simplifier
     if(is.character(simplify) || is.function(simplify))
@@ -546,7 +620,7 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, buf=2^24, simplify=TRUE)
     if(inherits(.r, 'try-error') || isTRUE(simplify))
         .r <- try(simplify2array(ret), silent = TRUE)
     if(!is.null(.r) && !inherits(.r, 'try-error'))
-       ret <- .r
+        ret <- .r
     ret
 }
 
