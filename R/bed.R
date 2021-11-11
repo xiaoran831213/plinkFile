@@ -355,20 +355,27 @@ readBIM <- function(pfx)
 #' *  3 = formated as %CHR(02d):%BPS(09d)_AL1(s)_AL2(s)
 #' *  0 = nothing
 #' * -1 = numbering of variants, decimal
-#' * -1 = numbering of variants, zero-padded, fixed length decimal
-#' * -2 = numbering of variants, zero-padded, fixed length hexedemical
+#' * -2 = numbering of variants, zero-padded, fixed length decimal
+#' * -3 = numbering of variants, zero-padded, fixed length hexedemical
 #' * or, a vector of IDs to use.
 #' 
-#' @param pfx prefix of a PLINK file set, in particualar, "_pfx_.bim".
-#' @param opt option (def=1, use the 2nd column in _pfx_.bim).
-#' @param bim table of variants already loaded via `readBIM(pfx)` (def=NULL).
+#' @param pfx prefix of a PLINK file set.
+#' @param opt option (def=1: the 2nd column in _pfx_.bim).
+#' @param bim use existing table loaded via `readBIM(pfx)` (def=NULL).
 #' @return a vector of variant ID
+#'
 #' @examples
 #' # read variant ID
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
-#' vid <- readVID(pfx)
-#' head(vid)
-#' tail(vid)
+#'
+#' # opt=1: 2nd column in the BED file (default)
+#' vid <- readVID(pfx, 1); head(vid); tail(vid)
+#'
+#' # opt=2: format by position
+#' vid <- readVID(pfx, 2); head(vid); tail(vid)
+#'
+#' # opt=3: format by position and alleles
+#' vid <- readVID(pfx, 3); head(vid); tail(vid)
 #' @export
 readVID <- function(pfx, opt=NULL, bim=NULL)
 {
@@ -385,9 +392,9 @@ readVID <- function(pfx, opt=NULL, bim=NULL)
                 if(opt == 1)
                     vid
                 else if(opt == 2)
-                    sprintf("%02s:%09d", chr, bps)
+                    sprintf("%02d:%09d", as.integer(chr), bps)
                 else
-                    sprintf("%02s:%09d_%s_%s", chr, bps, al1, al2)
+                    sprintf("%02d:%09d_%s_%s", as.integer(chr), bps, al1, al2)
             })
             P <- length(vid)
         }
