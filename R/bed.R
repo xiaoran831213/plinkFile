@@ -160,8 +160,8 @@ nbd <- function(C, N, j=0)
 #' `chrX.bed`, `chrX.fam`, and `chrX.bim` are jointly refered by `chrX`.
 #' 
 #' @param pfx prefix of PLINK file set, or the fullname of a BED file.
-#' @param row row names: 1=IID, 2=FID.IID, def=NULL.
-#' @param col col names: 1=variant ID, 2= CHR:POS, 3=CHR:POS_A1_A2, def=NULL
+#' @param iid IID as row names (def=1, see [readIID()]). 
+#' @param vid VID as col names (def=1, see [readVID()]).
 #' @param vfr from which variant? (def=1st)
 #' @param vto till which variant? (def=EOF)
 #' @param quiet suppress screen printing? (def=TRUE)
@@ -169,12 +169,11 @@ nbd <- function(C, N, j=0)
 #' 
 #' @examples
 #' bed <- system.file("extdata", 'm20.bed', package="plinkFile")
-#' pfx <- sub("[.]bed$", "", bed)
-#' bed <- readBED(pfx, quiet=FALSE)
+#' gmx <- readBED(bed, quiet=FALSE)
 #'
 #' @seealso {readBED}
 #' @export
-readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
+readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
 {
     pfx <- sub("[.]bed", "", pfx)
     ## the triplets
@@ -182,39 +181,11 @@ readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
     famFile <- paste0(pfx, '.fam')
     bimFile <- paste0(pfx, '.bim')
     
-    ## read FAM and BIM if necessary, count samples and variants.
-    if(is.numeric(row) && row > 0)
-    {
-        fam <- readFAM(pfx)
-        N <- nrow(fam)
-        if(row == 1) # IID as row name
-            row <- fam[, 2]             
-        else # FID.IID as row name
-            row <- paste(fam[, 1], fam[, 2], sep='.')
-    }
-    else
-    {
-        row <- NULL
-        N <- nr(famFile)
-    }
-
-    if(is.numeric(col) && col > 0)
-    {
-        bim <- readBIM(pfx)
-        P <- nrow(bim)
-        if(col == 1) # rs ID as column name
-            col <- bim[, 2]
-        else if(col == 2) # CHR:POS as column name
-            col <- sprintf("%02d:%09d", bim[, 1], bim[, 4])
-        else # CHR:POS_A1_A2 as column name
-            col <- sprintf("%02d:%09d_%s_%s", bim[, 1], bim[, 4], bim[, 5], bim[, 6])
-        rm(bim)
-    }
-    else
-    {
-        col <- NULL
-        P <- nr(bimFile)
-    }
+    ## number of samples and features
+    iid <- readIID(pfx, vid)
+    vid <- readVID(pfx, vid)
+    N <- if(is.null(iid)) nr(famFile) else length(iid)
+    P <- if(is.null(vid)) nr(bimFile) else length(vid)
 
     ## open the the BED file
     fp <- file(bedFile, open="rb")
@@ -243,8 +214,8 @@ readBED <- function(pfx, row=NULL, col=NULL, vfr=NULL, vto=NULL, quiet=TRUE)
     rt <- dbd(bd, N, quiet=quiet)
 
     ## assign row and column names
-    rownames(rt) <- row
-    colnames(rt) <- col
+    rownames(rt) <- iid
+    colnames(rt) <- vid
     rt
 }
 
@@ -300,21 +271,94 @@ saveBED <- function(pfx, bed, quiet=TRUE)
 #' it is common to provide sex, among other covariates, and multiple phenotypes
 #' in a separate file.
 #' 
-#' @param pfx prefix of a PLINK file set.
-#' @return meta data frame describing individuals, loaded from "{_pfx_.fam}".
+#' @param fam prefix or name of a PLINK file.
+#' @return data frame of individuals, loaded from FAM.
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
 #' fam <- readFAM(pfx)
 #' fam
 #' @export
-readFAM <- function(pfx)
+readFAM <- function(fam)
 {
-    fn <- paste0(pfx, '.fam')
+    pfx <- sub("[.](bim|fam|bed)$", "", fam)
     hdr <- c("fid", "iid", "mom", "dad", "sex", "phe")
     clz <- c(rep("character", 4), rep("integer", 2))
-    utils::read.table(fn, FALSE, col.names=hdr, colClasses=clz)
+    utils::read.table(paste0(pfx, '.fam'), FALSE, col.names=hdr, colClasses=clz)
 }
 
+#' read individual ID
+#'
+#' Generate individual ID automatically, or based on a *fam* file.
+#'
+#' @details
+#' The option (`opt`) can be:
+#' *  1 = the *iid* column in FAM (default),
+#' *  2 = formated as *fid*.*iid*,
+#' *  0 = nothing
+#' * -1 = numbering of individuals, decimal
+#' * -2 = numbering of individuals, zero-padded fix-length decimal
+#' * -3 = numbering of individuals, zero-padded fix-length hexedemical
+#' or, a vector of IDs to use.
+#' 
+#' @param fam prefix or name of a PLINK file, or data fram from a FAM file.
+#' @param opt option (def=1: the 2nd column in FAM file).
+#' @return a vector of individual ID
+#'
+#' @examples
+#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
+#' readIID(pfx,  1) # opt= 1: IID
+#' readIID(pfx,  2) # opt= 2: FID.IID
+#' readIID(pfx, -1) # opt=-1: number sequence
+#' readIID(pfx, -2) # opt=-2: number sequence, fixed length, decimal
+#' readIID(pfx, -3) # opt=-3: number sequence, fixed length, hexidemical
+#'
+#' @export
+readIID <- function(fam, opt=NULL)
+{
+    opt <- if(is.null(opt)) 1 else opt            # default option = 1
+    if(identical(opt, 0L) || identical(opt, 0))   # do nothing
+        iid <- NULL
+    else if(is.numeric(opt) && length(opt) == 1 && opt > 0)
+    {
+        if(is.character(fam) && length(fam) == 1) # read FAM from file
+            fam <- readFAM(fam)
+        if(is.data.frame(fam) && all(c("fid", "iid") %in% names(fam)))
+        {
+            if(opt == 1) # IID as row name
+                iid <- fam$iid
+            else         # FID.IID as row name
+                iid <- paste(fam$fid, fam$iid, sep='.')
+        }
+        else
+            stop("Bad FAM:", fam)
+    }
+    else if(is.numeric(opt) && length(opt) == 1 && opt < 0)
+    {
+        if(is.character(fam) && length(fam) == 1)
+            N <- nr(paste0(sub("[.](bed|fam|fam)$", "", fam), ".fam"))
+        else
+            N <- NROW(fam)
+        if(opt == -1)
+            iid <- sprintf("%d", seq(N))
+        else if(opt == -2)
+            iid <- .name(N, alpha=c(0:9))
+        else
+            iid <- .name(N, alpha=c(0:9, letters[1:6]))
+    }
+    else if(length(opt) > 1)
+    {
+        if(is.character(fam) && length(fam) == 1)
+            N <- nr(paste0(sub("[.](bed|fam|fam)$", "", fam), ".fam"))
+        else
+            N <- NROW(fam)
+        if(length(opt) != N)
+            stop(gettextf("unequal num of IDs and individuals (%d and %d).", length(opt), N))
+        iid <- opt
+    }
+    else
+        stop(gettextf("fail to get variant IDs from \"%s\" with opt=%s.", fam, opt))
+    iid
+}
 
 #' Read BIM file
 #'
@@ -329,20 +373,26 @@ readFAM <- function(pfx)
 #' * al1: allele 1, the one counted as dosage.
 #' * al2: allele 2.
 #' 
-#' @param pfx prefix of a PLINK file set.
-#' @return meta data frame describing the variants, loaded from "{_pfx_.bim}".
+#' @param bim prefix or name of a PLINK file.
+#' @return data frame of variants, loaded from BIM.
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
 #' bim <- readBIM(pfx)
 #' bim
 #' @export
-readBIM <- function(pfx)
+readBIM <- function(bim)
 {
-    fn <- paste0(pfx, '.bim')
+    pfx <- sub("[.](bim|fam|bed)$", "", bim)
+    ## read BIM
     hdr <- c("chr", "vid", "cmg", "bps", "al1", "al2")
-    clz <- c("character", "character", "integer", "integer", "character", "character")
-    utils::read.table(fn, FALSE, col.names=hdr, colClasses=clz)
+    ccs <- c("character", "character", "integer", "integer", "character", "character")
+    bim <- utils::read.table(paste0(pfx, '.bim'), FALSE, col.names=hdr, colClasses=ccs)
+    ## convert chromosomes to integer
+    CHR <- c(1L:26L, X=23L, Y=24L, XY=25L, M=26L, MT=26L)
+    names(CHR)[1:26] <- 1:26
+    within(bim, chr <- CHR[chr])
 }
+
 
 #' read variant ID
 #'
@@ -359,9 +409,8 @@ readBIM <- function(pfx)
 #' * -3 = numbering of variants, zero-padded, fixed length hexedemical
 #' * or, a vector of IDs to use.
 #' 
-#' @param pfx prefix of a PLINK file set.
-#' @param opt option (def=1: the 2nd column in _pfx_.bim).
-#' @param bim use existing table loaded via `readBIM(pfx)` (def=NULL).
+#' @param bim prefix or name of a PLINK file, or data frame from a BIM file.
+#' @param opt option (def=1: the 2nd column in BIM file).
 #' @return a vector of variant ID
 #'
 #' @examples
@@ -376,53 +425,62 @@ readBIM <- function(pfx)
 #'
 #' # opt=3: format by position and alleles
 #' vid <- readVID(pfx, 3); head(vid); tail(vid)
+#'
+#' # opt=-1: number sequence
+#' vid <- readVID(pfx, -1); head(vid); tail(vid)
+#'
+#' # opt=-2: number sequence, fixed length, decimal
+#' vid <- readVID(pfx, -2); head(vid); tail(vid)
+#'
+#' # opt=-3: number sequence, fixed length, hexidemical
+#' vid <- readVID(pfx, -3); head(vid); tail(vid)
 #' @export
-readVID <- function(pfx, opt=NULL, bim=NULL)
+readVID <- function(bim, opt=NULL)
 {
-    if(is.null(opt))
-        opt <- 1
-    if(is.numeric(opt) && length(opt) == 1)
+    opt <- if(is.null(opt)) 1 else opt            # default option = 1
+    if(identical(opt, 0L) || identical(opt, 0))             # do nothing
+        vid <- NULL
+    else if(is.numeric(opt) && length(opt) == 1 && opt > 0) # based on BIM table
     {
-        if(opt > 0)
+        if(is.character(bim) && length(bim) == 1) # read BIM from file
+            bim <- readBIM(bim)
+        if(is.data.frame(bim) && all(c("chr", "bps", "al1", "al2") %in% names(bim)))
         {
-            if(is.null(bim))
-                bim <- readBIM(pfx)
-            vid <- with(bim,
-            {
-                if(opt == 1)
-                    vid
-                else if(opt == 2)
-                    sprintf("%02d:%09d", as.integer(chr), bps)
-                else
-                    sprintf("%02d:%09d_%s_%s", as.integer(chr), bps, al1, al2)
-            })
-            P <- length(vid)
+            if(opt == 1)
+                vid <- bim$vid
+            else if(opt == 2)
+                vid <- with(bim, sprintf("%02d:%09d",       chr, bps))
+            else
+                vid <- with(bim, sprintf("%02d:%09d_%s_%s", chr, bps, al1, al2))
         }
         else
-        {
-            P <- if(is.null(bim)) nr(paste0(pfx, ".bim")) else nrow(bim)
-            if(length(opt) == 1)
-            {
-                if(opt == 0)
-                    vid <- NULL
-                else if(opt == -1)
-                    vid <- sprintf("%d", seq(P))
-                else if(opt == -2)
-                    vid <- .name(P, alpha=c(0:9))
-                else
-                    vid <- .name(P, alpha=c(0:9, letters[1:6]), pfx="0x")
-            }
-        }
+            stop("Bad BIM:", bim)
+    }
+    else if(is.numeric(opt) && length(opt) == 1 && opt < 0) # by variant counts
+    {
+        if(is.character(bim) && length(bim) == 1)
+            P <- nr(paste0(sub("[.](bed|bim|fam)$", "", bim), ".bim"))
+        else
+            P <- NROW(bim)
+        if(opt == -1)
+            vid <- sprintf("%d", seq(P))
+        else if(opt == -2)
+            vid <- .name(P, alpha=c(0:9))
+        else
+            vid <- .name(P, alpha=c(0:9, letters[1:6]))
     }
     else if(length(opt) > 1)
     {
-        P <- if(is.null(bim)) nr(paste0(pfx, ".bim")) else nrow(bim)
+        if(is.character(bim) && length(bim) == 1)
+            P <- nr(paste0(sub("[.](bed|bim|fam)$", "", bim), ".bim"))
+        else
+            P <- NROW(bim)
         if(length(opt) != P)
             stop(gettextf("unequal num of IDs and variants (%d and %d).", length(opt), P))
         vid <- opt
     }
     else
-        stop(gettextf("fail to get variant IDs from \"%s\" with opt=%s.", pfx, opt))
+        stop(gettextf("fail to get variant IDs from \"%s\" with opt=%s.", bim, opt))
     vid
 }
 
@@ -433,7 +491,8 @@ readVID <- function(pfx, opt=NULL, bim=NULL)
 #' @param FUN a function to process each window of variants;
 #' @param ... additional argument for *`FUN`* when `scanBED` is used.
 #' @param win window size - the number of variants passed to `FUN` per iteration.
-#' @param vid variant ID option (def=1, use the 2nd column in _pfx_.bim).
+#' @param iid IID as row names (def=1, see [readIID()]). 
+#' @param vid VID as col names (def=1, see [readVID()]).
 #' @examples
 #' ## traverse genotype, apply R function without side effects
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
@@ -442,7 +501,6 @@ readVID <- function(pfx, opt=NULL, bim=NULL)
 #'     .af <- colMeans(g, na.rm=TRUE) / 2
 #'     maf <- pmin(.af, 1 - .af)
 #'     mis <- colSums(is.na(g)) / .N
-#'     wnd <- .w
 #'     pct <- round(.w / .W * 100, 2)
 #'     cbind(buf=.b, wnd=.w, idx=.i, MAF=maf, MIS=mis, PCT=pct)
 #' },
@@ -451,7 +509,7 @@ readVID <- function(pfx, opt=NULL, bim=NULL)
 #' tail(ret)
 #'
 #' @export
-scanBED <- function(pfx, FUN, ..., win=1, vid=NULL, buf=2^24, simplify=TRUE)
+scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, buf=2^24, simplify=TRUE)
 {
     ## PLINK file set
     bedFile <- paste0(pfx, '.bed')
@@ -459,12 +517,13 @@ scanBED <- function(pfx, FUN, ..., win=1, vid=NULL, buf=2^24, simplify=TRUE)
     bimFile <- paste0(pfx, '.bim')
 
     ## number of samples and features
-    N <- nr(famFile)
+    iid <- readIID(pfx, vid)
     vid <- readVID(pfx, vid)
+    N <- if(is.null(iid)) nr(famFile) else length(iid)
     P <- if(is.null(vid)) nr(bimFile) else length(vid)
 
     ## open the the BED file
-    fp <- fp <- .try.open.bed(bedFile)
+    fp <- .try.open.bed(bedFile)
 
     ## praperation
     byt <- file.size(bedFile) - 3L  # bytes to go through
@@ -489,6 +548,8 @@ scanBED <- function(pfx, FUN, ..., win=1, vid=NULL, buf=2^24, simplify=TRUE)
         gmx <- dbd(chk, N)               # genotype matrix
         if(!is.null(vid))                # vid -> column name
             colnames(gmx) <- vid[seq(wdx * win + 1, len=ncol(gmx))]
+        if(!is.null(iid))
+            rownames(gmx) <- iid
         for(j in seq(1, ncol(gmx), win)) # go through windows
         {
             jdx <- seq(j, min(j + win - 1, ncol(gmx)))
@@ -521,7 +582,8 @@ scanBED <- function(pfx, FUN, ..., win=1, vid=NULL, buf=2^24, simplify=TRUE)
 #' The scripts in `EXP` have side effects on the environment of `loopBED`.
 #' @param EXP a R expression to evaluate with each window of variants;
 #' @param GVR a R variable name to assign the window to (def="g").
-#' @param vid option for variant IDs (def=1, the 2nd column in _pfx_.bim).
+#' @param iid IID as row names (def=1, see [readIID()]). 
+#' @param vid VID as col names (def=1, see [readVID()]).
 #' @examples
 #' ## traversing genotype, evaluate R expression with side effects
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
@@ -537,7 +599,7 @@ scanBED <- function(pfx, FUN, ..., win=1, vid=NULL, buf=2^24, simplify=TRUE)
 #' tail(ret)
 #'
 #' @export
-loopBED <- function(pfx, EXP, GVR="g", win=1, vid=1, buf=2^24, simplify=TRUE)
+loopBED <- function(pfx, EXP, GVR="g", win=1, iid=1, vid=1, buf=2^24, simplify=TRUE)
 {
     ## PLINK file set
     bedFile <- paste0(pfx, '.bed')
@@ -545,8 +607,9 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, vid=1, buf=2^24, simplify=TRUE)
     bimFile <- paste0(pfx, '.bim')
 
     ## number of samples and features
-    N <- nr(famFile)
+    iid <- readIID(pfx, vid)
     vid <- readVID(pfx, vid)
+    N <- if(is.null(iid)) nr(famFile) else length(iid)
     P <- if(is.null(vid)) nr(bimFile) else length(vid)
 
     ## open the the BED file
