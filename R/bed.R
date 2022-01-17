@@ -134,7 +134,7 @@ ebd <- function(D, N, quiet=TRUE)
 #' @noRd
 nbd <- function(C, N, j=0)
 {
-    ## bytes per variant, rounded to 4 persion per byte
+    ## bytes per variant, rounded to 4 person per byte
     M <- as.integer(ceiling(N / 4))
 
     ## move the file pointer
@@ -168,9 +168,13 @@ nbd <- function(C, N, j=0)
 #' @return genotype matrix with row individuals and column variants.
 #' 
 #' @examples
+#' ## read an entire small data
 #' bed <- system.file("extdata", 'm20.bed', package="plinkFile")
 #' gmx <- readBED(bed, quiet=FALSE)
 #'
+#' ## read part of a large data
+#' bed <- system.file("extdata", '000.bed', package="plinkFile")
+#' gm2 <- readBED(bed, vfr=10, vto=20, quiet=FALSE)
 #' @seealso {readBED}
 #' @export
 readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
@@ -182,12 +186,12 @@ readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
     bimFile <- paste0(pfx, '.bim')
     
     ## number of samples and features
-    iid <- readIID(pfx, vid)
+    iid <- readIID(pfx, iid)
     vid <- readVID(pfx, vid)
     N <- if(is.null(iid)) nr(famFile) else length(iid)
     P <- if(is.null(vid)) nr(bimFile) else length(vid)
 
-    ## open the the BED file
+    ## open the the BED file, jump to the "variant-from"
     fp <- file(bedFile, open="rb")
 
     ## first 3 bytes must be 6c 1b 01
@@ -202,8 +206,15 @@ readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
     }
 
     ## scan the entire data
-    dl <- file.size(bedFile) - 3L        # data length
-    bd <- readBin(fp, "raw", dl)         # byte data
+    byt <- file.size(bedFile) - 3L                      # bytes for data
+    bpv <- byt %/% P                                    # bytes per variant
+    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 1), P)  # variant-from
+    vto <- if(is.null(vto)) P else max(min(vto, P), 1)  # variant-to
+    if(vto < vfr)
+        stop(gettextf("to-variant (%d) preceeds from-variant (%d)", vto, vfr))
+    seek(fp, origin="current", where=(vfr - 1L) * bpv)  # move file pointer
+    byt <- (vto - vfr + 1) * bpv                        # bytes remained
+    bd <- readBin(fp, "raw", byt)                       # byte data
     if(isOpen(fp, "rb"))
     {
         ## print(paste("Close", bedFile, fp))
@@ -215,10 +226,9 @@ readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
 
     ## assign row and column names
     rownames(rt) <- iid
-    colnames(rt) <- vid
+    colnames(rt) <- vid[vfr:vto]
     rt
 }
-
 
 #' Save BED file
 #'
@@ -251,7 +261,6 @@ saveBED <- function(pfx, bed, quiet=TRUE)
 
     invisible(NULL)
 }
-
 
 #' Read FAM file
 #'
@@ -393,7 +402,6 @@ readBIM <- function(bim)
     within(bim, chr <- CHR[chr])
 }
 
-
 #' read variant ID
 #'
 #' Generate variant ID automatically, or based on a *bim* file.
@@ -517,7 +525,7 @@ scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, buf=2^24, simplify=TRUE)
     bimFile <- paste0(pfx, '.bim')
 
     ## number of samples and features
-    iid <- readIID(pfx, vid)
+    iid <- readIID(pfx, iid)
     vid <- readVID(pfx, vid)
     N <- if(is.null(iid)) nr(famFile) else length(iid)
     P <- if(is.null(vid)) nr(bimFile) else length(vid)
@@ -528,7 +536,17 @@ scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, buf=2^24, simplify=TRUE)
     ## praperation
     byt <- file.size(bedFile) - 3L  # bytes to go through
     bpv <- byt %/% P                # bytes per variant
-    vpb <- max(buf %/% bpv, win)    # variants per chunk
+
+    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 1), P)  # variant-from
+    vto <- if(is.null(vto)) P else max(min(vto, P), 1)  # variant-to
+    if(vto < vfr)
+        stop(gettextf("to-variant (%d) preceeds from-variant (%d)", vto, vfr))
+    seek(fp, origin="current", where=(vfr - 1L) * bpv)  # move file pointer
+    ## bytes to go through updated
+    byt <- (vto - vfr + 1) * bpv
+    P <- vto - vfr + 1
+
+    vpb <- max(buf %/% bpv, win)    # variants per buffer,
     vpb <- ceiling(vpb / win) * win # round up to full window
     bpc <- bpv * vpb                # bytes per chunk
     wdx <- 0L                       # window index
@@ -540,13 +558,17 @@ scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, buf=2^24, simplify=TRUE)
     env[[".B"]] <- as.integer(ceiling(byt / bpc))
     ## go through the binary data
     ret <- list()
-    while (length(chk <- readBin(fp, "raw", bpc)) > 0)
+    bps <- 0 # bytes passed
+    ## while (length(chk <- readBin(fp, "raw", bpc)) > 0)
+    ## while (length(chk <- readBin(fp, "raw", bpc)) > 0 && (byp <- byp + chk) < byt)
+    while (bps < byt)
     {
+        .n. <- 
         bdx <- bdx + 1
         env[[".b"]] <- bdx
         ## cat("Chunk #", bdx, "\n") # process a chunk
-        gmx <- dbd(chk, N)               # genotype matrix
-        if(!is.null(vid))                # vid -> column name
+        gmx <- dbd(chk, N)           # genotype matrix
+        if(!is.null(vid))            # vid -> column name
             colnames(gmx) <- vid[seq(wdx * win + 1, len=ncol(gmx))]
         if(!is.null(iid))
             rownames(gmx) <- iid
@@ -607,7 +629,7 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, iid=1, vid=1, buf=2^24, simplify=T
     bimFile <- paste0(pfx, '.bim')
 
     ## number of samples and features
-    iid <- readIID(pfx, vid)
+    iid <- readIID(pfx, iid)
     vid <- readVID(pfx, vid)
     N <- if(is.null(iid)) nr(famFile) else length(iid)
     P <- if(is.null(vid)) nr(bimFile) else length(vid)
@@ -636,8 +658,10 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, iid=1, vid=1, buf=2^24, simplify=T
         env[[".b"]] <- bdx
         ## cat("Chunk #", bdx, "\n") # process a chunk
         gmx <- dbd(chk, N)               # genotype matrix
-        if(!is.null(vid))                # vid -> column name
+        if(!is.null(vid))                # vid -> column name?
             colnames(gmx) <- vid[seq(wdx * win + 1, len=ncol(gmx))]
+        if(!is.null(iid))                # iid -> column name?
+            rownames(gmx) <- iid
         for(j in seq(1, ncol(gmx), win)) # go through windows
         {
             jdx <- seq(j, min(j + win - 1, ncol(gmx)))
@@ -694,7 +718,6 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, iid=1, vid=1, buf=2^24, simplify=T
         ret <- .r
     ret
 }
-
 
 #' Test BED Reader
 #'
