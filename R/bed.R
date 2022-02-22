@@ -174,7 +174,19 @@ nbd <- function(C, N, j=0)
 #'
 #' ## read part of a large data
 #' bed <- system.file("extdata", '000.bed', package="plinkFile")
-#' gm2 <- readBED(bed, vfr=10, vto=20, quiet=FALSE)
+#' U <- readBED(bed, vfr=01, vto=10, quiet=FALSE)
+#' V <- readBED(bed, vfr=11, vto=20, quiet=FALSE)
+#' W <- cbind(U, V)
+#' X <- readBED(bed, vfr=01, vto=20, quiet=FALSE)
+#' all.equal(W, X)
+#'
+#' ## read by fraction
+#' A <- readBED(bed, vfr=0.000, vto=0.001, quiet=FALSE)
+#' B <- readBED(bed, vfr=0.001, vto=0.002, quiet=FALSE)
+#' C <- cbind(A, B)
+#' D <- readBED(bed, vfr=0.000, vto=0.002, quiet=FALSE)
+#' all.equal(C, D)
+#' 
 #' @seealso {readBED}
 #' @export
 readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
@@ -206,10 +218,17 @@ readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
     }
 
     ## scan the entire data
-    byt <- file.size(bedFile) - 3L                      # bytes for data
-    bpv <- byt %/% P                                    # bytes per variant
-    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 1), P)  # variant-from
-    vto <- if(is.null(vto)) P else max(min(vto, P), 1)  # variant-to
+    byt <- file.size(bedFile) - 3L                     # bytes for data
+    bpv <- byt %/% P                                   # bytes per variant
+    ## vfr <- if(is.null(vfr)) 1 else min(max(vfr, 1), P) # variant-from
+    ## vto <- if(is.null(vto)) P else max(min(vto, P), 1) # variant-to
+    vfr <- if(is.null(vfr)) 0 else min(max(vfr, 0), P) # variant-from
+    vto <- if(is.null(vto)) 1 else max(min(vto, P), 0) # variant-to
+    if(vfr < 1)                                        # in case of fraction
+    {
+        vfr <- as.integer(max(0, vfr) * P) + 1
+        vto <- as.integer(min(1, vto) * P)
+    }
     if(vto < vfr)
         stop(gettextf("to-variant (%d) preceeds from-variant (%d)", vto, vfr))
     seek(fp, origin="current", where=(vfr - 1L) * bpv)  # move file pointer
@@ -517,7 +536,8 @@ readVID <- function(bim, opt=NULL)
 #' tail(ret)
 #'
 #' @export
-scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, buf=2^24, simplify=TRUE)
+scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, vfr=NULL, vto=NULL,
+                    buf=2^24, simplify=TRUE)
 {
     ## PLINK file set
     bedFile <- paste0(pfx, '.bed')
