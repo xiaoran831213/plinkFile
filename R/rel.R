@@ -38,7 +38,7 @@ readBSM <- function(pfx, dgv=1, fid=NULL, id=NULL, bin=NULL)
     ## ID in {p}.id
     if(is.null(id))
         id <- paste0(pfx, ".id")
-    ids <- matrix(scan(id, quiet=TRUE, comment.char = "#"), 2)
+    ids <- matrix(scan(id, "", quiet=TRUE, comment.char = "#"), 2)
     if(is.null(fid))
         ids <- ids[1, ]
     else
@@ -104,17 +104,17 @@ readBSM <- function(pfx, dgv=1, fid=NULL, id=NULL, bin=NULL)
 #'
 #' If a matrix has no row names, the IDs will be automatically generated.
 #' 
-#' By default, row names are assumed to  be FID.IID or IID, that is, faimily ID
-#' and individual ID connected by a ".", or just the individual ID.
+#' By default, row names are assumed to be both FID and IID, that is, faimilies
+#' of a single individual.
 #'
-#' When family ID is  absent, the individual ID fill in act  as family ID, that
-#' is, a family of an single individual.
+#' If the row names are FID and  IID connected by a character, such as FID.IID,
+#' specify that character (i.e. ".") with argument \code{sep}.
 #'
 #' @param x the target matrix
-#' @param sep separator between FID and IID (def=".").
+#' @param sep separator between FID and IID (def=NULL).
 #' @return data fram of family ID and individual ID infered from row names.
 #' @noRd
-gid <- function(x, sep=".")
+gid <- function(x, sep=NULL)
 {
     N <- nrow(x)
     i <- row.names(x)
@@ -122,9 +122,16 @@ gid <- function(x, sep=".")
     {
         i <- sprintf(paste0('I%d0', nchar(N)), seq(N))
     }
-    sep <- paste0('[', sep, ']')
-    i <- lapply(strsplit(i, sep), rep, l=2)
-    i <- data.frame(do.call(rbind, i), stringsAsFactors=FALSE)
+    if(is.null(sep))
+    {
+        i <- data.frame(i, i)
+    }
+    else
+    {
+        sep <- paste0('[', sep, ']')
+        i <- lapply(strsplit(i, sep), rep, l=2)
+        i <- data.frame(do.call(rbind, i), stringsAsFactors=FALSE)
+    }
     names(i) <- c('FID', 'IID')
     i
 }
@@ -233,7 +240,7 @@ readREL <- function(pfx, fid=".") readBSM(paste0(pfx, ".rel"), fid=fid)
 #' @param fid separator after family ID (def=NULL, use IID only)
 #' @return matrix of relatedness with sample ID in row and column names.
 #' @export
-readGRM <- function(pfx, fid=".") readBSM(paste0(pfx, ".grm"), fid=fid)
+readGRM <- function(pfx, fid=NULL) readBSM(paste0(pfx, ".grm"), fid=fid)
 
 #' Read Variant Count Matrix (VCM) accompanying a GCTA GRM
 #'
@@ -276,7 +283,7 @@ readVCM <- function(pfx, fid=NULL) readBSM(paste0(pfx, ".grm.N"), fid=fid, id=pa
 #' @param pfx prefix of data files
 #' @param grm genome relatedness matrix to save
 #' @param vcm variant counts matrix to save (def=1).
-#' @param fid separator after family ID. (def=".")
+#' @param fid separator after family ID. (def=NULL)
 #'
 #' @examples
 #' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
@@ -313,7 +320,7 @@ readVCM <- function(pfx, fid=NULL) readBSM(paste0(pfx, ".grm.N"), fid=fid, id=pa
 #' unlink(tmp, recursive=TRUE)
 #' 
 #' @export
-saveGRM <- function(pfx, grm, vcm=NULL, fid=".")
+saveGRM <- function(pfx, grm, vcm=NULL, fid=NULL)
 {
     ## get file names
     fn.rmx <- paste0(pfx, ".grm.bin")
