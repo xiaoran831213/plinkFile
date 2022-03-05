@@ -1,4 +1,4 @@
-tst1 <- function(vfr=0, vto=1)
+tst1 <- function(vfr=NULL, vto=NULL)
 {
     pfx <- file.path(system.file("extdata", package="plinkFile"), "000")
     ret <- scanBED(pfx, function(g)

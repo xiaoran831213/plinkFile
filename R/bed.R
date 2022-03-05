@@ -1,3 +1,5 @@
+## DBT <- dbd(as.raw(seq(0x00, 0xFF)), 4L)
+
 #' Decode Byte Data
 #'
 #' Decodes bytes read from a BED into allele dosage or NA.
@@ -46,6 +48,21 @@ dbd <- function(B, N, quiet=TRUE)
     if(!quiet)
         cat("sample 4, 8, 12, ...\n")
     r[seq.int(4L, M, 4L), ] <- C[as.integer(rawShift(B, -6L) & m) + 1L]
+
+    ## truncate padded, non-existing individuals
+    if (N < M)
+        r <- r[seq.int(1L, N), , drop=FALSE]
+    r
+}
+
+DBD <- function(B, N, quiet=TRUE)
+{
+    M <- as.integer(ceiling(N / 4) * 4L) # round to 4 persons
+    P <- length(B) / M * 4               # number of variants
+
+    ## genotype matrix to be returned
+    r <- DBT[, as.integer(B) + 1]
+    dim(r) <- c(M, P)
 
     ## truncate padded, non-existing individuals
     if (N < M)
@@ -180,18 +197,11 @@ nbd <- function(C, N, j=0)
 #' X <- readBED(bed, vfr=01, vto=20, quiet=FALSE)
 #' all.equal(W, X)
 #'
-#' ## read by fraction
-#' A <- readBED(bed, vfr=0.000, vto=0.001, quiet=FALSE)
-#' B <- readBED(bed, vfr=0.001, vto=0.002, quiet=FALSE)
-#' C <- cbind(A, B)
-#' D <- readBED(bed, vfr=0.000, vto=0.002, quiet=FALSE)
-#' all.equal(C, D)
-#' 
 #' @seealso {readBED}
 #' @export
 readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
 {
-    pfx <- sub("[.]bed", "", pfx)
+    pfx <- sub("[.](bim|fam|bed)$", "", bim)
     ## the triplets
     bedFile <- paste0(pfx, '.bed')
     famFile <- paste0(pfx, '.fam')
@@ -226,13 +236,13 @@ readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
     fp <- .try.open.bed(bedFile)
     seek(fp, origin="current", where=(vfr - 1L) * bpv)  # move file pointer
     bd <- readBin(fp, "raw", byt)                       # byte data
-
+    
     if(isOpen(fp, "rb"))
     {
         ## print(paste("Close", bedFile, fp))
         close(fp)
     }
-
+    
     ## decompress the byte data
     rt <- dbd(bd, N, quiet=quiet)
 
@@ -397,20 +407,21 @@ readIID <- function(fam, opt=NULL)
 #' @param bim prefix or name of a PLINK file.
 #' @return data frame of variants, loaded from BIM.
 #' @examples
-#' pfx <- file.path(system.file("extdata", package="plinkFile"), "m20")
-#' bim <- readBIM(pfx)
+#' bed <- file.path(system.file("extdata", package="plinkFile"), "000.bed")
+#' bim <- readBIM(bed, 20, 30)
 #' bim
 #' @export
-readBIM <- function(bim)
+readBIM <- function(bim, vfr=NULL, vto=NULL)
 {
-    pfx <- sub("[.](bim|fam|bed)$", "", bim)
+    ## fix filename
+    bimFile <- paste0(sub("[.](bed|bim|fam)$", "", bim), ".bim")
     ## read BIM
     hdr <- c("chr", "vid", "cmg", "bps", "al1", "al2")
     ccs <- c("character", "character", "integer", "integer", "character", "character")
-    bim <- utils::read.table(paste0(pfx, '.bim'), FALSE, col.names=hdr, colClasses=ccs)
+    skp <- if(is.null(vfr))  0  else vfr - 1
+    nln <- if(is.null(vto)) -1  else vto - skp
+    bim <- utils::read.table(bimFile, FALSE, col.names=hdr, colClasses=ccs, nrows=nln, skip=skp)
     ## convert chromosomes to integer
-    CHR <- c(1L:26L, X=23L, Y=24L, XY=25L, M=26L, MT=26L)
-    names(CHR)[1:26] <- 1:26
     within(bim, chr <- CHR[chr])
 }
 
@@ -455,7 +466,7 @@ readBIM <- function(bim)
 #' # opt=-3: number sequence, fixed length, hexidemical
 #' vid <- readVID(pfx, -3); head(vid); tail(vid)
 #' @export
-readVID <- function(bim, opt=NULL)
+readVID <- function(bim, opt=NULL, vfr=NULL, vto=NULL)
 {
     opt <- if(is.null(opt)) 1 else opt            # default option = 1
     if(identical(opt, 0L) || identical(opt, 0))             # do nothing
@@ -463,7 +474,7 @@ readVID <- function(bim, opt=NULL)
     else if(is.numeric(opt) && length(opt) == 1 && opt > 0) # based on BIM table
     {
         if(is.character(bim) && length(bim) == 1) # read BIM from file
-            bim <- readBIM(bim)
+            bim <- readBIM(bim, vfr, vto)
         if(is.data.frame(bim) && all(c("chr", "bps", "al1", "al2") %in% names(bim)))
         {
             if(opt == 1)
@@ -537,28 +548,21 @@ scanBED <- function(pfx, FUN, ..., win=1, iid=1, vid=1, vfr=NULL, vto=NULL, buf=
     bimFile <- paste0(sub("[.](bed|bim|fam)$", "", pfx), ".bim")
 
     ## number of samples and features
-    iid <- readIID(pfx, iid)
-    vid <- readVID(pfx, vid)
-    N <- if(is.null(iid)) nr(famFile) else length(iid)
-    P <- if(is.null(vid)) nr(bimFile) else length(vid)
+    N <- nr(famFile)
+    P <- nr(bimFile)
 
     ## get range
-    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 0), P) # variant-from
-    vto <- if(is.null(vto)) P else min(max(vto, 0), P) # variant-to
-    if(vfr < 1)     # in case of fraction
-    {
-        vfr <- as.integer(vfr * P) + 1
-        if(vto == 1)
-            vto <- P
-    }
-    if(vto < 1)
-        vto <- as.integer(vto * P)
+    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 1), P) # variant-from
+    vto <- if(is.null(vto)) P else min(max(vto, 1), P) # variant-to
     if(vto < vfr)
         stop(gettextf("to-variant (%d) preceeds from-variant (%d)", vto, vfr))
 
+    ## IDs
+    vid <- readVID(pfx, opt=vid, vfr=vfr, vto=vto)
+    iid <- readIID(pfx, iid)
+    
     ## praperation
     bpv <- (file.size(bedFile) - 3L)  %/% P # bytes per variant
-    vid <- vid[vfr:vto]  # update VID
     nvr <- vto - vfr + 1 # number of variants
     byt <- nvr * bpv     # number of bytes
 
@@ -645,28 +649,21 @@ loopBED <- function(pfx, EXP, GVR="g", win=1, iid=1, vid=1, vfr=NULL, vto=NULL, 
     bimFile <- paste0(sub("[.](bed|bim|fam)$", "", pfx), ".bim")
     
     ## number of samples and features
-    iid <- readIID(pfx, iid)
-    vid <- readVID(pfx, vid)
-    N <- if(is.null(iid)) nr(famFile) else length(iid)
-    P <- if(is.null(vid)) nr(bimFile) else length(vid)
+    N <- nr(famFile)
+    P <- nr(bimFile)
 
     ## get range
-    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 0), P) # variant-from
-    vto <- if(is.null(vto)) P else min(max(vto, 0), P) # variant-to
-    if(vfr < 1)     # in case of fraction
-    {
-        vfr <- as.integer(vfr * P) + 1
-        if(vto == 1)
-            vto <- P
-    }
-    if(vto < 1)
-        vto <- as.integer(vto * P)
+    vfr <- if(is.null(vfr)) 1 else min(max(vfr, 1), P) # variant-from
+    vto <- if(is.null(vto)) P else min(max(vto, 1), P) # variant-to
     if(vto < vfr)
         stop(gettextf("to-variant (%d) preceeds from-variant (%d)", vto, vfr))
 
+    ## IDs
+    vid <- readVID(pfx, opt=vid, vfr=vfr, vto=vto)
+    iid <- readIID(pfx, iid)
+
     ## praperation
     bpv <- (file.size(bedFile) - 3L)  %/% P # bytes per variant
-    vid <- vid[vfr:vto]  # update VID
     nvr <- vto - vfr + 1 # number of variants
     byt <- nvr * bpv     # number of bytes
 
