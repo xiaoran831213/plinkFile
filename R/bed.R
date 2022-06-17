@@ -201,7 +201,7 @@ nbd <- function(C, N, j=0)
 #' @export
 readBED <- function(pfx, iid=1, vid=1, vfr=NULL, vto=NULL, quiet=TRUE)
 {
-    pfx <- sub("[.](bim|fam|bed)$", "", bim)
+    pfx <- sub("[.](bim|fam|bed)$", "", pfx)
     ## the triplets
     bedFile <- paste0(pfx, '.bed')
     famFile <- paste0(pfx, '.fam')
